@@ -1,0 +1,11 @@
+__pycache__/
+credentials/
+data/
+vector_db/
+experimentation/
+.env
+openai_funciton.ipynb
+parser.ipynb
+utils.py 
+validating_pdf_parser.py
+routing.ipynb
