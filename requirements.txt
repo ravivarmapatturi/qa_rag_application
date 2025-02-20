@@ -11,3 +11,4 @@ jpype1
 langchain-experimental
 sentence_transformers
 langchain[groq]
+rank_bm25
