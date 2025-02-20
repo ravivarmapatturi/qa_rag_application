@@ -1,6 +1,6 @@
 # Install default Java Runtime and Development Kit (if necessary for other dependencies)
-sudo add-apt-repository ppa:jonathonf/sqlite3
-sudo apt-get update
+add-apt-repository ppa:jonathonf/sqlite3
+apt-get update
 default-jre
 default-jdk
 sqlite3
