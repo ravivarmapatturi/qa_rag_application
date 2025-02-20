@@ -13,3 +13,4 @@ langchain-experimental
 sentence_transformers
 langchain-groq==0.2.4
 rank_bm25
+docling
