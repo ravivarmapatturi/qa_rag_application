@@ -11,5 +11,5 @@ pysqlite3-binary
 jpype1
 langchain-experimental
 sentence_transformers
-langchain-groq
+langchain-groq==0.2.4
 rank_bm25
