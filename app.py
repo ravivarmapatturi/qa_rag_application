@@ -133,15 +133,13 @@ else:
         doc_chunks = text_splitter.split_documents(docs)
 
         # Step 3: Convert chunks into embeddings
-        persist_directory = os.path.join(os.getcwd(), "vector_db")
+        persist_directory = os.path.join(os.getcwd(), "vector_embeddings")
 
         # Check if the directory exists, and create it if not
-        if os.path.exists(persist_directory):
-            pass
-            # shutil.rmtree(persist_directory)
-            # os.makedirs(persist_directory)
-        else:
+        persist_directory = os.path.join(os.getcwd(), "vector_embeddings")
+        if not os.path.exists(persist_directory):
             os.makedirs(persist_directory)
+
             
         
                 
