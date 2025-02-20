@@ -137,8 +137,9 @@ else:
 
         # Check if the directory exists, and create it if not
         if os.path.exists(persist_directory):
-            shutil.rmtree(persist_directory)
-            os.makedirs(persist_directory)
+            pass
+            # shutil.rmtree(persist_directory)
+            # os.makedirs(persist_directory)
         else:
             os.makedirs(persist_directory)
             
