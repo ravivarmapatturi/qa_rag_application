@@ -33,9 +33,9 @@ from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import MessagesPlaceholder
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
 
-# __import__('pysqlite3')  # Import the pysqlite3 module
-# import sys
-# sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
+__import__('pysqlite3')  # Import the pysqlite3 module
+import sys
+sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
 
 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
