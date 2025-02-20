@@ -153,7 +153,7 @@ else:
 
         # Step 4: Store documents and vector DB in session state for future use
         st.session_state.docs = docs
-        st.session_state.vector_db = vector_db
+        st.session_state.vector_db = vector_embeddings
         st.session_state.embeddings = embeddings
         st.session_state.text_splitter = text_splitter
 
