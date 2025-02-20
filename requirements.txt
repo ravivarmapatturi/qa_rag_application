@@ -6,7 +6,7 @@ streamlit
 pandas
 pdfplumber==0.11.4
 tabula-py
-chromadb==0.4.4
+chromadb==0.5.18
 pysqlite3-binary
 jpype1
 langchain-experimental
