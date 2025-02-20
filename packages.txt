@@ -1,5 +1,12 @@
+# Install default Java Runtime and Development Kit (if necessary for other dependencies)
 default-jre
 default-jdk
+
+# Ensure SQLite3 and its development libraries are installed
 sqlite3
 libsqlite3-dev
 
+# If needed, add a PPA to get a newer version of SQLite
+# This ensures you get SQLite >= 3.35.0
+sudo add-apt-repository ppa:jonathonf/sqlite3
+sudo apt-get update
