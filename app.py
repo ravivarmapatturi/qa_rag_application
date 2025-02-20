@@ -146,9 +146,9 @@ else:
                 
         # embeddings = OpenAIEmbeddings()
         
-        vector_db = Chroma.from_documents(doc_chunks, embeddings,persist_directory=persist_directory)
+        st.session_state.vector_db = Chroma.from_documents(doc_chunks, embeddings,persist_directory=persist_directory)
         
-        st.session_state.vectorstore_retreiver = vector_db.as_retriever(search_kwargs={"k": 3})
+        st.session_state.vectorstore_retreiver = st.session_state.vector_db.as_retriever(search_kwargs={"k": 3})
         st.session_state.keyword_retriever = BM25Retriever.from_documents(doc_chunks)
         
 
