@@ -18,15 +18,15 @@ from huggingface_hub import InferenceClient
 from langchain_groq import ChatGroq
 from langchain_community.embeddings import HuggingFaceBgeEmbeddings
 
-with open("/home/ravivarma/Downloads/preplaced/session_5_tasks/miniproject/credentials/api_keys.yaml") as file:
-    config = yaml.safe_load(file)
-api_keys = config['api_keys']["chatgpt"]
-api_groq = config["api_keys"]["groq"]
-os.environ["OPENAI_API_KEY"] = api_keys
-os.environ["GROQ_API_KEY"] = api_groq 
-# from huggingface_hub import InferenceClient
-# os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
-# os.environ["GROQ_API_KEY"] = st.secrets["groq"]
+# with open("/home/ravivarma/Downloads/preplaced/session_5_tasks/miniproject/credentials/api_keys.yaml") as file:
+#     config = yaml.safe_load(file)
+# api_keys = config['api_keys']["chatgpt"]
+# api_groq = config["api_keys"]["groq"]
+# os.environ["OPENAI_API_KEY"] = api_keys
+# os.environ["GROQ_API_KEY"] = api_groq 
+# # from huggingface_hub import InferenceClient
+os.environ["OPENAI_API_KEY"] = st.secrets["OPENAI_API_KEY"]
+os.environ["GROQ_API_KEY"] = st.secrets["groq"]
 
 
 # chatgpt = ChatOpenAI(model_name='gpt-3.5-turbo', temperature=0.7)
