@@ -31,6 +31,8 @@ from langchain.chains import create_history_aware_retriever
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import MessagesPlaceholder
+from langchain.retrievers import BM25Retriever, EnsembleRetriever
+
 # __import__('pysqlite3')  # Import the pysqlite3 module
 # import sys
 # sys.modules['sqlite3'] = sys.modules.pop('pysqlite3')
@@ -143,7 +145,12 @@ else:
         
                 
         # embeddings = OpenAIEmbeddings()
+        
         vector_db = Chroma.from_documents(doc_chunks, embeddings,persist_directory=persist_directory)
+        
+        st.session_state.vectorstore_retreiver = vector_db.as_retriever(search_kwargs={"k": 3})
+        st.session_state.keyword_retriever = BM25Retriever.from_documents(doc_chunks)
+        
 
         # Step 4: Store documents and vector DB in session state for future use
         st.session_state.docs = docs
@@ -153,10 +160,14 @@ else:
 
         placeholder.info(f"Total documents split into {len(doc_chunks)} chunks.")
         placeholder.info(f"Stored vector DB for future use.")
+        
+    similarity_retriever = EnsembleRetriever(retrievers=[st.session_state.vectorstore_retreiver,
+                                                   st.session_state.keyword_retriever],
+                                       weights=[0.3, 0.7])
 
 
-    similarity_retriever = st.session_state.vector_db.as_retriever(search_type="similarity",
-                                                search_kwargs={"k": 3})
+    # similarity_retriever = st.session_state.vector_db.as_retriever(search_type="similarity",
+    #                                             search_kwargs={"k": 3})
 
     # retriever = st.session_state.vector_db.as_retriever(search_type="mmr", search_kwargs={"k": 5, "lambda_mult": 0.5})
     

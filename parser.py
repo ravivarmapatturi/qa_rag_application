@@ -2,7 +2,7 @@ from langchain_community.document_loaders import PyPDFLoader,PyMuPDFLoader,PDFMi
 from langchain_core.documents import Document
 import pypdfium2 as pdfium
 from openai import OpenAI
-from markitdown import MarkItDown
+# from markitdown import MarkItDown
 from docling.document_converter import DocumentConverter
 
 
@@ -64,33 +64,33 @@ def PARSING_PDF(parsing_strategy,pdf_path):
         return langchain_docs
 
     
-    elif parsing_strategy=="markitdown":
+    # elif parsing_strategy=="markitdown":
         
-        client = OpenAI()
-        markitdown = MarkItDown(llm_client=client, llm_model="gpt-4")
+    #     client = OpenAI()
+    #     markitdown = MarkItDown(llm_client=client, llm_model="gpt-4")
         
-        # Convert the Markdown file
-        result = markitdown.convert(pdf_path)
+    #     # Convert the Markdown file
+    #     result = markitdown.convert(pdf_path)
         
-        # Access the attributes of the result object
-        title = result.title or "Unknown"
-        text_content = result.text_content or ""
+    #     # Access the attributes of the result object
+    #     title = result.title or "Unknown"
+    #     text_content = result.text_content or ""
         
-        # Metadata
-        metadata = {
-            "source": pdf_path,
-            "title": title,
-        }
+    #     # Metadata
+    #     metadata = {
+    #         "source": pdf_path,
+    #         "title": title,
+    #     }
         
-        # Create a LangChain Document
-        langchain_docs = [
-            Document(
-                page_content=text_content,
-                metadata=metadata
-            )
-        ]
+    #     # Create a LangChain Document
+    #     langchain_docs = [
+    #         Document(
+    #             page_content=text_content,
+    #             metadata=metadata
+    #         )
+    #     ]
         
-        return langchain_docs
+    #     return langchain_docs
     
     
     elif parsing_strategy=="docling":
