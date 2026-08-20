@@ -1,0 +1,26 @@
+Northwind Robotics -- Travel & Expense Reimbursement Policy (Effective 2026-01-01)
+
+1. Meal Per Diem
+Employees traveling for business receive a daily meal per diem of $65 for
+domestic travel and $90 for international travel. The per diem covers
+breakfast, lunch, and dinner combined and does not require itemized
+receipts.
+
+2. Receipt Requirements
+Any single non-meal expense over $25 requires an itemized receipt uploaded
+to the Expense Portal within 14 days of the expense date. Expenses without
+a receipt above this threshold will not be reimbursed.
+
+3. Approval Chain
+Expense reports under $500 require approval from the employee's direct
+manager only. Expense reports of $500 or more require approval from both
+the direct manager and the finance department.
+
+4. Airfare Class
+Economy class is standard for flights under 6 hours. Flights of 6 hours or
+longer qualify for premium economy. Business class requires VP-level
+approval regardless of flight duration.
+
+5. Reimbursement Timeline
+Approved expense reports are reimbursed within 10 business days via direct
+deposit to the employee's payroll account.

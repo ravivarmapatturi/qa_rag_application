@@ -39,11 +39,14 @@ This repository contains a QA RAG (Retrieval-Augmented Generation) chat applicat
     ```
 
 3. **Set Up Environment**:
-    Create a `.env` file for storing your API keys and other sensitive information:
+    Copy `.env.example` to `.env` and fill in your keys:
     ```bash
-    os.environ["OPENAI_API_KEY"]= your api key
+    cp .env.example .env
+    # then edit .env:
+    OPENAI_API_KEY=your-openai-key
+    GROQ_API_KEY=your-groq-key
     ```
-    Add the required keys to the `.env` file.
+    `.env` is loaded automatically at startup via `python-dotenv`.
 
 4. **Run the Application**:
     To start the application, run:
@@ -57,12 +60,13 @@ This repository contains a QA RAG (Retrieval-Augmented Generation) chat applicat
 - **chunking_strategies.py**: Contains different chunking strategies used for processing the text.
 - **query_translation.py**: Handles query re-writing and transformation.
 - **parser.py**: Includes different parsers for processing documents.
-- **utils.py**: Utility functions for various tasks like loading data, handling models, etc.
+- **rag_pipeline.py**: The single-turn parse → chunk → index → hybrid-retrieve → generate pipeline as plain importable functions, shared by the eval harness (app.py's interactive chat has its own history-aware variant of the same pipeline).
+- **eval/**: RAGAS-based eval suite -- fixed test set, fixture documents, and the eval runner. See [Evaluation](#evaluation) below.
 - **Dockerfile**: Docker configuration for containerizing the application.
 - **requirements.txt**: List of required Python packages.
 - **packages.txt**: Dependencies for managing additional packages.
 - **.gitignore**: Ensures sensitive files and folders are not tracked by Git.
-- **.env**: Stores environment variables such as API keys.
+- **.env.example**: Template for the `.env` file storing environment variables such as API keys.
 
 ## Usage
 
@@ -85,6 +89,27 @@ This repository contains a QA RAG (Retrieval-Augmented Generation) chat applicat
     - Decomposition
     - Step Back
     - HyDE
+
+## Evaluation
+
+Retrieval and generation quality are tracked with a small [RAGAS](https://github.com/explodinggradients/ragas) suite
+against a fixed set of questions over two synthetic fixture documents (`eval/fixtures/docs/`), so changes to
+chunking, retrieval, or prompting can be measured against a baseline instead of eyeballed.
+
+```bash
+pip install -r eval/requirements-eval.txt
+python eval/run_eval.py
+```
+
+This builds a fresh index from the fixture PDFs, answers every question in `eval/testset.json` through the
+same hybrid (dense + BM25) retriever used by the app's default prompting mode, and scores the results on
+faithfulness, answer relevancy, context precision, and context recall. Results are written to
+`eval/results/latest.json` and the run fails (non-zero exit) if any metric falls below `--threshold` (default
+0.7) -- this is what `.github/workflows/eval.yml` runs in CI on every push/PR, given `OPENAI_API_KEY` /
+`GROQ_API_KEY` repo secrets.
+
+To edit the fixture documents, edit the `.txt` files in `eval/fixtures/sources/` and regenerate the PDFs with
+`python eval/fixtures/generate_fixtures.py`.
 
 ## Contributing
 
