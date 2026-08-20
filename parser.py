@@ -15,16 +15,19 @@ def PARSING_PDF(parsing_strategy,pdf_path):
         loader = PyPDFLoader(pdf_path)
 
         langchain_docs = loader.load()
-    
+        return langchain_docs
+
     elif parsing_strategy=="PyMuPDFLoader":
         loader = PyMuPDFLoader(pdf_path)
 
         langchain_docs = loader.load()
-        
+        return langchain_docs
+
     elif parsing_strategy=="PDFMinerLoader":
         loader = PDFMinerLoader(pdf_path)
         langchain_docs = loader.load()
-        
+        return langchain_docs
+
     elif parsing_strategy=="pdfium":
         # Load the PDF
         pdf = pdfium.PdfDocument(pdf_path)
@@ -94,13 +97,12 @@ def PARSING_PDF(parsing_strategy,pdf_path):
     
     
     elif parsing_strategy=="docling":
-        
+
         converter = DocumentConverter()
         result = converter.convert(pdf_path)
-        
-        
-        return result.document
-        
+        text = result.document.export_to_markdown()
 
-        
-        
+        return [Document(page_content=text, metadata={"source": pdf_path})]
+
+    else:
+        raise ValueError(f"Unknown parsing strategy: {parsing_strategy}")

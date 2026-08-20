@@ -1,4 +1,5 @@
 pip==25.0.1
+python-dotenv
 langchain==0.3.18
 langchain-openai==0.2.8
 langchain-community

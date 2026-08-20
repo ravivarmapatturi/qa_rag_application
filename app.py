@@ -1,6 +1,6 @@
 import os
-import yaml 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+import yaml
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_community.vectorstores.chroma import Chroma
@@ -26,9 +26,7 @@ from query_translation import prompt,chatgpt,rag_chain,rag_chain_multi_query,gen
 from langchain.chains import create_retrieval_chain
 from chunking_strategies import CHUNKING_STRATEGY
 from parser import PARSING_PDF
-from langchain.chat_models import ChatOpenAI
 from langchain.chains import create_history_aware_retriever
-from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import MessagesPlaceholder
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
@@ -62,10 +60,10 @@ uploaded_files = st.sidebar.file_uploader(
 
 chunking_strategy = st.sidebar.selectbox(
     "Chunking Strategy for RAG:",
-    [   
+    [
         "RecursiveCharacterTextSplitter",
         "CharacterTextSplitter",
-        "titoken",
+        "tiktoken",
         "semantic"
     ]
     )
@@ -84,7 +82,6 @@ parsing_strategy = st.sidebar.selectbox(
         "PyMuPDFLoader",
         "PyPDFLoader",
         "PDFMinerLoader",
-        "markitdown",
         "docling"
     ]
     )
@@ -114,17 +111,15 @@ else:
     # Check if documents have already been processed
     if 'docs' not in st.session_state:
         temp_dir = tempfile.TemporaryDirectory()
+        docs = []
         for file in uploaded_files:
             temp_filepath = os.path.join(temp_dir.name, file.name)
             with open(temp_filepath, "wb") as f:
                 f.write(file.getvalue())
-        
-        
-        # step 1: parsing the pdf
-        docs=PARSING_PDF(parsing_strategy,temp_filepath)
-        
-     
-    
+
+            # step 1: parsing the pdf
+            docs.extend(PARSING_PDF(parsing_strategy, temp_filepath))
+
         # Step 2: Split documents into chunks
         
         text_splitter=CHUNKING_STRATEGY(chunking_strategy)
@@ -140,12 +135,12 @@ else:
         if not os.path.exists(persist_directory):
             os.makedirs(persist_directory)
 
-            
-        
-                
-        # embeddings = OpenAIEmbeddings()
-        
-        st.session_state.vector_db = Chroma.from_documents(doc_chunks, embeddings,persist_directory=persist_directory)
+        # NOTE: `embeddings` is the HuggingFaceBgeEmbeddings instance imported from
+        # query_translation.py -- the same embedding model used at query/retrieval
+        # time. Keep indexing and retrieval on the same embedding model; swapping
+        # one side to a different model (e.g. OpenAIEmbeddings) silently breaks
+        # vector similarity between what's indexed and what's queried.
+        st.session_state.vector_db = Chroma.from_documents(doc_chunks, embeddings, persist_directory=persist_directory)
         
         st.session_state.vectorstore_retreiver = st.session_state.vector_db.as_retriever(search_kwargs={"k": 3})
         st.session_state.keyword_retriever = BM25Retriever.from_documents(doc_chunks)
@@ -153,7 +148,6 @@ else:
 
         # Step 4: Store documents and vector DB in session state for future use
         st.session_state.docs = docs
-        st.session_state.vector_db = vector_embeddings
         st.session_state.embeddings = embeddings
         st.session_state.text_splitter = text_splitter
 
