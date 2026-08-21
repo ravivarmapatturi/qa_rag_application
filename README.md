@@ -71,8 +71,10 @@ This repository contains a QA RAG (Retrieval-Augmented Generation) chat applicat
 - **agentic_rag.py**: LangGraph router that classifies each question and sends it to naive retrieval, graph retrieval, or a CRAG-style self-correcting agent loop.
 - **observability.py**: Langfuse tracing via LangChain's callback integration, shared by every prompting method and the eval harness. See [Observability](#observability).
 - **eval/**: RAGAS-based eval suite -- fixed test set, fixture documents, and the eval runner. See [Evaluation](#evaluation) below.
+- **tests/**: pytest unit tests, no real API keys required. See [Tests](#tests) below.
 - **Dockerfile**: Docker configuration for containerizing the application.
-- **requirements.txt**: List of required Python packages.
+- **requirements.txt**: List of required Python packages for running the app.
+- **requirements-dev.txt**: Extra packages needed only for running the test suite (pytest).
 - **packages.txt**: Dependencies for managing additional packages.
 - **.gitignore**: Ensures sensitive files and folders are not tracked by Git.
 - **.env.example**: Template for the `.env` file storing environment variables such as API keys.
@@ -140,6 +142,21 @@ For the Agentic Router specifically, every node function receives the run's `con
 forwards it into its own nested LLM calls (routing classification, per-document grading, query rewriting,
 decomposition, generation), so a single question shows up as one trace in Langfuse with each routing/retrieval/
 grading/generation step as a nested span -- not disconnected fragments.
+
+## Tests
+
+```bash
+pip install -r requirements-dev.txt
+python -m pytest tests/ -v
+```
+
+Unit tests for `parser.py` (each lightweight parsing strategy against the eval fixture PDFs), `chunking_strategies.py`,
+`graph_retrieval.py`'s traversal logic (hop reachability, undirected traversal, entity matching, no-match fallback),
+`rag_pipeline.py`'s hybrid retrieval and answer shape, `rag_pipeline.build_reranking_retriever`, `agentic_rag.py`'s
+routing/grading/decomposition logic and graph topology, and `observability.py`'s tracing-enabled/disabled behavior.
+None of these need real API keys -- LLM calls that need real output use a `FakeListChatModel`; calls using structured
+output (routing, grading, decomposition) use small stub LLMs that return canned Pydantic results, since
+`FakeListChatModel` doesn't emulate tool-calling realistically. Runs in CI on every push via `.github/workflows/tests.yml`.
 
 ## Evaluation
 
