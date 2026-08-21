@@ -22,7 +22,7 @@ from pdfminer.high_level import extract_text
 from langchain_core.messages import HumanMessage, AIMessage ,SystemMessage
 import re
 import datetime
-from query_translation import prompt,chatgpt,rag_chain,rag_chain_multi_query,generate_queries,get_unique_union,reciprocal_rank_fusion,generate_queries_decomposition,decomposition_prompt,format_qa_pair,generate_queries_step_back,response_prompt,generate_docs_for_retrieval,embeddings
+from query_translation import get_llm,build_rag_chain,build_rag_chain_multi_query,build_generate_queries,get_unique_union,reciprocal_rank_fusion,build_generate_queries_decomposition,decomposition_prompt,format_qa_pair,build_generate_queries_step_back,response_prompt,build_generate_docs_for_retrieval,embeddings
 from langchain.chains import create_retrieval_chain
 from chunking_strategies import CHUNKING_STRATEGY
 from parser import PARSING_PDF
@@ -113,9 +113,21 @@ use_reranking = st.sidebar.checkbox(
     help="Retrieves a wider candidate pool and reranks it with a cross-encoder (sentence-transformers ms-marco-MiniLM) before answering.",
 )
 
+# Resolve the selected model once per script run and (re)build every
+# prompting-method chain against it, so the "Select the available LLM
+# Models" dropdown actually changes which model answers instead of every
+# chain being permanently wired to whatever model was live when
+# query_translation.py was first imported.
+chatgpt = get_llm(llm_model)
+rag_chain = build_rag_chain(chatgpt)
+rag_chain_multi_query = build_rag_chain_multi_query(chatgpt)
+generate_queries = build_generate_queries(chatgpt)
+generate_queries_decomposition = build_generate_queries_decomposition(chatgpt)
+generate_queries_step_back = build_generate_queries_step_back(chatgpt)
+generate_docs_for_retrieval = build_generate_docs_for_retrieval(chatgpt)
 
 
-    
+
 
 
 # Check if any files are uploaded

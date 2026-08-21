@@ -39,34 +39,33 @@ embeddings = HuggingFaceBgeEmbeddings(
 )
 
 
+def get_llm(model_name: str = "mistral"):
+    """Build a chat model for the given sidebar selection.
 
-llm_model="mistral"
+    Every chain in this module is built via the `build_*` functions below,
+    each taking an `llm` produced by this factory -- so app.py's model
+    dropdown actually changes which model answers, instead of every
+    prompting method being permanently wired to whatever model was live at
+    import time.
+    """
+    if model_name in ("gpt-3.5-turbo", "gpt-4"):
+        return ChatOpenAI(model_name="gpt-3.5-turbo", temperature=0.7)
+    if model_name == "mistral":
+        return ChatGroq(
+            model="mixtral-8x7b-32768",
+            temperature=0,
+            max_tokens=None,
+            timeout=None,
+            max_retries=2,
+        )
+    raise ValueError(f"Unknown llm_model: {model_name}")
 
-if llm_model=="gpt-3.5-turbo" or llm_model=="gpt-4":
-    chatgpt = ChatOpenAI(model_name='gpt-3.5-turbo', temperature=0.7)
 
-
-if llm_model=="mistral":
-    chatgpt= ChatGroq(
-        model="mixtral-8x7b-32768",
-        temperature=0,
-        max_tokens=None,
-        timeout=None,
-        max_retries=2,
-        # other params...
-    )
-
-
-
-
-# qa_prompt = ChatPromptTemplate.from_messages([
-#     ("system", "You are a helpful AI assistant. Use the following context to answer the user's question."),
-#     ("system", "Context: {context}"),
-#     MessagesPlaceholder(variable_name="chat_history"),
-#     ("human", "{input}")
-# ])
-
-# question_answer_chain = create_stuff_documents_chain(chatgpt, qa_prompt)
+# Fixed default used by callers that don't care which model answers (the
+# eval harness in particular wants a stable, reproducible model across runs
+# rather than tracking whatever a Streamlit session's sidebar happens to be
+# set to) -- rag_pipeline.py and eval/run_eval.py both rely on this default.
+chatgpt = get_llm("mistral")
 
 
 
@@ -109,8 +108,14 @@ Question: {question}
 Answer:
 """
 
-prompt= ChatPromptTemplate.from_template(qa_template1)
-rag_chain = LLMChain(prompt=prompt, llm=chatgpt)
+qa_prompt = ChatPromptTemplate.from_template(qa_template1)
+
+
+def build_rag_chain(llm):
+    return LLMChain(prompt=qa_prompt, llm=llm)
+
+
+rag_chain = build_rag_chain(chatgpt)
 
 
 
@@ -130,7 +135,13 @@ Provide these alternative questions separated by newlines. Original question: {q
 
 
 prompt_perspectives = ChatPromptTemplate.from_template(qa_template2)
-generate_queries = (prompt_perspectives | chatgpt| StrOutputParser() | (lambda x: x.split("\n")))
+
+
+def build_generate_queries(llm):
+    return prompt_perspectives | llm | StrOutputParser() | (lambda x: x.split("\n"))
+
+
+generate_queries = build_generate_queries(chatgpt)
 
 def get_unique_union(documents: list[list]):
     """ Unique union of retrieved docs """
@@ -145,7 +156,11 @@ def get_unique_union(documents: list[list]):
 
 
 
-rag_chain_multi_query = LLMChain(prompt=prompt_perspectives, llm=chatgpt)
+def build_rag_chain_multi_query(llm):
+    return LLMChain(prompt=prompt_perspectives, llm=llm)
+
+
+rag_chain_multi_query = build_rag_chain_multi_query(chatgpt)
 
 
 #########################################################################################
@@ -189,7 +204,12 @@ Generate multiple search queries related to: {question} \n
 Output (3 queries):"""
 prompt_decomposition = ChatPromptTemplate.from_template(template)
 
-generate_queries_decomposition = ( prompt_decomposition | chatgpt | StrOutputParser() | (lambda x: x.split("\n")))
+
+def build_generate_queries_decomposition(llm):
+    return prompt_decomposition | llm | StrOutputParser() | (lambda x: x.split("\n"))
+
+
+generate_queries_decomposition = build_generate_queries_decomposition(chatgpt)
 
 
 template = """Here is the question you need to answer:
@@ -247,7 +267,7 @@ few_shot_prompt = FewShotChatMessagePromptTemplate(
     example_prompt=example_prompt,
     examples=examples,
 )
-prompt = ChatPromptTemplate.from_messages(
+step_back_prompt = ChatPromptTemplate.from_messages(
     [
         (
             "system",
@@ -261,7 +281,11 @@ prompt = ChatPromptTemplate.from_messages(
 )
 
 
-generate_queries_step_back = prompt | chatgpt | StrOutputParser()
+def build_generate_queries_step_back(llm):
+    return step_back_prompt | llm | StrOutputParser()
+
+
+generate_queries_step_back = build_generate_queries_step_back(chatgpt)
 
 
 
@@ -286,7 +310,8 @@ Passage:"""
 prompt_hyde = ChatPromptTemplate.from_template(template)
 
 
+def build_generate_docs_for_retrieval(llm):
+    return prompt_hyde | llm | StrOutputParser()
 
-generate_docs_for_retrieval = (
-    prompt_hyde | chatgpt | StrOutputParser() 
-)
+
+generate_docs_for_retrieval = build_generate_docs_for_retrieval(chatgpt)
