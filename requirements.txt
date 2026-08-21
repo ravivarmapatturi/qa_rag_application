@@ -19,5 +19,6 @@ rank_bm25
 docling
 langgraph<0.4
 networkx
+langfuse
 #sqlite >= 3.35.0
 

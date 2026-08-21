@@ -33,6 +33,7 @@ from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from contextual_retrieval import contextualize_chunks
 from rag_pipeline import build_reranking_retriever
 from agentic_rag import build_app as build_agentic_app
+from observability import trace_config
 
 __import__('pysqlite3')  # Import the pysqlite3 module
 import sys
@@ -319,7 +320,7 @@ else:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 # Invoke the chain with the required parameters, including context
-                result =rag_chain.invoke({"input": question, "chat_history": st.session_state.chat_history})['answer']
+                result =rag_chain.invoke({"input": question, "chat_history": st.session_state.chat_history}, config=trace_config(run_name="Default"))['answer']
                 
 
 
@@ -342,12 +343,12 @@ else:
             # Retrieve
             # question = "What is task decomposition for LLM agents?"
             retrieval_chain = generate_queries | mq_retriever.map() | get_unique_union
-            context = retrieval_chain.invoke({"question": question})
+            context = retrieval_chain.invoke({"question": question}, config=trace_config(run_name="Multi-Query retrieval"))
             context_text = "\n".join([doc.page_content for doc in context])
-            
+
             if context_text:
-                result = rag_chain_multi_query.run({"question": question})
-                result2=rag_chain.invoke({"question":question,"context":context_text})
+                result = rag_chain_multi_query.run({"question": question}, callbacks=trace_config(run_name="Multi-Query generate_queries").get("callbacks"))
+                result2=rag_chain.invoke({"question":question,"context":context_text}, config=trace_config(run_name="Multi-Query answer"))
                 # print(result2)
                 with st.chat_message("AI"):
                     st.markdown(f"""
@@ -365,13 +366,13 @@ else:
         elif prompting_method=="RAG Fusion":
             placeholder.info("generating answer based on Multi-Query RAG Fusion Prompting method..")
             retrieval_chain = generate_queries | mq_retriever.map() | reciprocal_rank_fusion
-            context_text = retrieval_chain.invoke({"question": question})
+            context_text = retrieval_chain.invoke({"question": question}, config=trace_config(run_name="RAG Fusion retrieval"))
 
 
 
             if context_text:
-                result = rag_chain_multi_query.run({"question": question})
-                result2=rag_chain.invoke({"question":question,"context":context_text})
+                result = rag_chain_multi_query.run({"question": question}, callbacks=trace_config(run_name="RAG Fusion generate_queries").get("callbacks"))
+                result2=rag_chain.invoke({"question":question,"context":context_text}, config=trace_config(run_name="RAG Fusion answer"))
                 with st.chat_message("AI"):
                     st.markdown(f"""
                     <div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; margin-bottom: 10px;">
@@ -387,19 +388,19 @@ else:
 
 
         elif prompting_method == "Decomposition":
-            questions = generate_queries_decomposition.invoke({"question":question})
+            questions = generate_queries_decomposition.invoke({"question":question}, config=trace_config(run_name="Decomposition generate_queries"))
 
             q_a_pairs = ""
             for q in questions:
                 rag_chain = (
-                {"context": itemgetter("question") | mq_retriever, 
+                {"context": itemgetter("question") | mq_retriever,
                 "question": itemgetter("question"),
-                "q_a_pairs": itemgetter("q_a_pairs")} 
+                "q_a_pairs": itemgetter("q_a_pairs")}
                 | decomposition_prompt
                 | chatgpt
                 | StrOutputParser())
 
-                answer = rag_chain.invoke({"question":q,"q_a_pairs":q_a_pairs})
+                answer = rag_chain.invoke({"question":q,"q_a_pairs":q_a_pairs}, config=trace_config(run_name="Decomposition sub-answer"))
                 q_a_pair = format_qa_pair(q,answer)
                 q_a_pairs = q_a_pairs + "\n---\n"+  q_a_pair
 
@@ -417,7 +418,7 @@ else:
         elif prompting_method=="Step Back":
 
             # question = "What is task decomposition for LLM agents?"
-            generate_queries_step_back.invoke({"question": question})
+            generate_queries_step_back.invoke({"question": question}, config=trace_config(run_name="Step Back generate_step_back"))
 
             chain = (
                 {
@@ -433,7 +434,7 @@ else:
                 | StrOutputParser()
             )
 
-            answer=chain.invoke({"question": question})
+            answer=chain.invoke({"question": question}, config=trace_config(run_name="Step Back answer"))
 
             with st.chat_message("AI"):
                 st.markdown(f"""
@@ -451,11 +452,11 @@ else:
 
             # Run
             # question = "What is task decomposition for LLM agents?"
-            generate_docs_for_retrieval.invoke({"question":question})
+            generate_docs_for_retrieval.invoke({"question":question}, config=trace_config(run_name="HyDE generate_docs"))
 
 
-            retrieval_chain = generate_docs_for_retrieval | mq_retriever 
-            retireved_docs = retrieval_chain.invoke({"question":question})
+            retrieval_chain = generate_docs_for_retrieval | mq_retriever
+            retireved_docs = retrieval_chain.invoke({"question":question}, config=trace_config(run_name="HyDE retrieval"))
 
             # final_rag_chain = (
             #     prompt
@@ -463,7 +464,7 @@ else:
             #     | StrOutputParser()
             # )
 
-            answer=rag_chain.invoke({"context":retireved_docs,"question":question})
+            answer=rag_chain.invoke({"context":retireved_docs,"question":question}, config=trace_config(run_name="HyDE answer"))
 
             with st.chat_message("AI"):
                 st.markdown(f"""
@@ -481,7 +482,7 @@ else:
                 placeholder.info("Building the routed retrieval graph (extracts entities/relationships for GraphRAG-style multi-hop retrieval -- one LLM call per chunk, this takes a while)...")
                 st.session_state.agentic_app = build_agentic_app(st.session_state.doc_chunks, llm=chatgpt)
 
-            result = st.session_state.agentic_app.invoke({"question": question})
+            result = st.session_state.agentic_app.invoke({"question": question}, config=trace_config(run_name="Agentic Router"))
             answer = result["generation"]
 
             with st.chat_message("AI"):

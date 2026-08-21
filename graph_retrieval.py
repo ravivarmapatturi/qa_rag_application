@@ -25,6 +25,8 @@ import networkx as nx
 from langchain_core.documents import Document
 from pydantic import BaseModel, Field
 
+from observability import trace_config
+
 EXTRACTION_PROMPT = """Extract every distinct factual relationship stated in the following text.
 Each relationship is a (source entity, relation, target entity) triple, e.g.
 ("remote employees", "must be reachable between", "10:00 AM and 3:00 PM").
@@ -52,7 +54,10 @@ def extract_relationships(chunk_text: str, llm) -> List[Relationship]:
     """One LLM call (structured output) per chunk -- pulls out its (source,
     relation, target) triples. Requires a tool-calling-capable model."""
     structured_llm = llm.with_structured_output(ChunkGraph)
-    result = structured_llm.invoke(EXTRACTION_PROMPT.format(text=chunk_text))
+    result = structured_llm.invoke(
+        EXTRACTION_PROMPT.format(text=chunk_text),
+        config=trace_config(run_name="graph_retrieval.extract_relationships"),
+    )
     return result.relationships
 
 

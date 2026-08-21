@@ -20,6 +20,7 @@ from langchain_core.prompts import ChatPromptTemplate
 
 from chunking_strategies import CHUNKING_STRATEGY
 from contextual_retrieval import contextualize_chunks
+from observability import trace_config
 from parser import PARSING_PDF
 from query_translation import chatgpt, embeddings
 
@@ -115,6 +116,6 @@ def answer(question: str, chain) -> dict:
     Returns {"answer": str, "contexts": list[str]} -- the shape RAGAS expects
     for its `answer` and `contexts` fields.
     """
-    result = chain.invoke({"input": question})
+    result = chain.invoke({"input": question}, config=trace_config(run_name="rag_pipeline.answer"))
     contexts = [doc.page_content for doc in result.get("context", [])]
     return {"answer": result["answer"], "contexts": contexts}

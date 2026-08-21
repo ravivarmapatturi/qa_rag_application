@@ -19,6 +19,8 @@ expensive and slower than plain chunking. It's opt-in for that reason (see
 from langchain_core.documents import Document
 from langchain_core.messages import HumanMessage
 
+from observability import trace_config
+
 DOCUMENT_CONTEXT_PROMPT = """<document>
 {doc_content}
 </document>"""
@@ -44,7 +46,7 @@ def situate_context(llm, doc_content: str, chunk_content: str) -> str:
             + CHUNK_CONTEXT_PROMPT.format(chunk_content=chunk_content)
         )
     )
-    response = llm.invoke([message])
+    response = llm.invoke([message], config=trace_config(run_name="contextual_retrieval.situate_context"))
     return response.content.strip()
 
 

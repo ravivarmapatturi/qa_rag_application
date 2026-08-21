@@ -69,11 +69,12 @@ def build_dataset(
 
     if use_agentic:
         from agentic_rag import build_app_from_pdfs
+        from observability import trace_config
 
         app = build_app_from_pdfs(pdf_paths)
 
         def ask(question: str) -> dict:
-            result = app.invoke({"question": question})
+            result = app.invoke({"question": question}, config=trace_config(run_name="eval agentic"))
             contexts = [doc.page_content for doc in result.get("documents", [])]
             return {"answer": result["generation"], "contexts": contexts}
 

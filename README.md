@@ -69,6 +69,7 @@ This repository contains a QA RAG (Retrieval-Augmented Generation) chat applicat
 - **contextual_retrieval.py**: LLM-generated per-chunk context, following Anthropic's published contextual-retrieval technique.
 - **graph_retrieval.py**: GraphRAG-style multi-hop retrieval (LLM-extracted entity/relationship graph + NetworkX traversal) -- not Microsoft's `graphrag` package, see the module docstring for why.
 - **agentic_rag.py**: LangGraph router that classifies each question and sends it to naive retrieval, graph retrieval, or a CRAG-style self-correcting agent loop.
+- **observability.py**: Langfuse tracing via LangChain's callback integration, shared by every prompting method and the eval harness. See [Observability](#observability).
 - **eval/**: RAGAS-based eval suite -- fixed test set, fixture documents, and the eval runner. See [Evaluation](#evaluation) below.
 - **Dockerfile**: Docker configuration for containerizing the application.
 - **requirements.txt**: List of required Python packages.
@@ -124,6 +125,21 @@ structured-output router classifies each question, then routes it down one of th
   bounded CRAG-style self-correction loop (retrieve → grade each document's relevance with an LLM call → if
   none are relevant, rewrite the query and retry once → answer from the relevant documents), then the
   sub-answers are synthesized into one final answer.
+
+## Observability
+
+`observability.py` wires in [Langfuse](https://langfuse.com) tracing via LangChain's own callback integration
+(`langfuse.langchain.CallbackHandler`) -- no hand-rolled span/timing bookkeeping. Set `LANGFUSE_PUBLIC_KEY` and
+`LANGFUSE_SECRET_KEY` in `.env` (free tier at [cloud.langfuse.com](https://cloud.langfuse.com), or self-host and
+also set `LANGFUSE_HOST`) and every prompting method -- Default through Agentic Router, plus the eval harness --
+traces automatically. Leave them unset and the app runs exactly the same with tracing silently disabled; a bad
+or unreachable Langfuse endpoint fails the same way (a background warning, not a crash) so tracing can never
+take the app down.
+
+For the Agentic Router specifically, every node function receives the run's `config` from LangGraph and
+forwards it into its own nested LLM calls (routing classification, per-document grading, query rewriting,
+decomposition, generation), so a single question shows up as one trace in Langfuse with each routing/retrieval/
+grading/generation step as a nested span -- not disconnected fragments.
 
 ## Evaluation
 
