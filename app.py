@@ -30,6 +30,8 @@ from langchain.chains import create_history_aware_retriever
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import MessagesPlaceholder
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
+from contextual_retrieval import contextualize_chunks
+from rag_pipeline import build_reranking_retriever
 
 __import__('pysqlite3')  # Import the pysqlite3 module
 import sys
@@ -99,6 +101,18 @@ prompting_method = st.sidebar.selectbox(
     ]
     )
 
+use_contextual_retrieval = st.sidebar.checkbox(
+    "Use contextual retrieval (LLM-generated per-chunk context)",
+    value=False,
+    help="Prepends a short LLM-generated summary situating each chunk within its source document before embedding/indexing (Anthropic's contextual-retrieval technique). Slower and costs one extra LLM call per chunk at indexing time.",
+)
+
+use_reranking = st.sidebar.checkbox(
+    "Use cross-encoder reranking",
+    value=False,
+    help="Retrieves a wider candidate pool and reranks it with a cross-encoder (sentence-transformers ms-marco-MiniLM) before answering.",
+)
+
 
 
     
@@ -127,6 +141,10 @@ else:
         
         doc_chunks = text_splitter.split_documents(docs)
 
+        if use_contextual_retrieval:
+            placeholder.info(f"Generating contextual summaries for {len(doc_chunks)} chunks (one LLM call each, this takes a while)...")
+            doc_chunks = contextualize_chunks(doc_chunks, chatgpt)
+
         # Step 3: Convert chunks into embeddings
         persist_directory = os.path.join(os.getcwd(), "vector_embeddings")
 
@@ -141,9 +159,13 @@ else:
         # one side to a different model (e.g. OpenAIEmbeddings) silently breaks
         # vector similarity between what's indexed and what's queried.
         st.session_state.vector_db = Chroma.from_documents(doc_chunks, embeddings, persist_directory=persist_directory)
-        
-        st.session_state.vectorstore_retreiver = st.session_state.vector_db.as_retriever(search_kwargs={"k": 3})
+
+        # Reranking needs a wider candidate pool to actually choose among;
+        # plain retrieval keeps the original k=3.
+        retrieval_k = 10 if use_reranking else 3
+        st.session_state.vectorstore_retreiver = st.session_state.vector_db.as_retriever(search_kwargs={"k": retrieval_k})
         st.session_state.keyword_retriever = BM25Retriever.from_documents(doc_chunks)
+        st.session_state.keyword_retriever.k = retrieval_k
         
 
         # Step 4: Store documents and vector DB in session state for future use
@@ -157,6 +179,9 @@ else:
     similarity_retriever = EnsembleRetriever(retrievers=[st.session_state.vectorstore_retreiver,
                                                    st.session_state.keyword_retriever],
                                        weights=[0.3, 0.7])
+
+    if use_reranking:
+        similarity_retriever = build_reranking_retriever(similarity_retriever, top_n=3)
 
 
     # similarity_retriever = st.session_state.vector_db.as_retriever(search_type="similarity",

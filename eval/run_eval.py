@@ -15,6 +15,13 @@ model to call.
 
 Usage:
     python eval/run_eval.py [--threshold 0.7] [--report eval/results/latest.json]
+    python eval/run_eval.py --contextual --rerank --report eval/results/contextual_reranked.json
+
+--contextual and --rerank toggle contextual-retrieval chunking
+(contextual_retrieval.py) and cross-encoder reranking (rag_pipeline.
+build_reranking_retriever) on top of the baseline hybrid retriever, so a
+naive-vs-improved run can be scored against the same fixed test set and
+compared directly via their --report files.
 """
 import argparse
 import glob
@@ -33,13 +40,20 @@ DEFAULT_REPORT_PATH = os.path.join(HERE, "results", "latest.json")
 METRIC_NAMES = ["faithfulness", "answer_relevancy", "context_precision", "context_recall"]
 
 
-def build_dataset(testset_path: str, fixtures_glob: str):
+def build_dataset(testset_path: str, fixtures_glob: str, use_contextual: bool = False, use_rerank: bool = False):
     """Run every fixed-testset question through the pipeline; return a RAGAS
     EvaluationDataset plus the raw per-question records (for the report)."""
     from ragas import EvaluationDataset
     from ragas.dataset_schema import SingleTurnSample
 
-    from rag_pipeline import answer, build_hybrid_retriever, build_qa_chain, build_vector_store, load_and_chunk
+    from rag_pipeline import (
+        answer,
+        build_hybrid_retriever,
+        build_qa_chain,
+        build_reranking_retriever,
+        build_vector_store,
+        load_and_chunk,
+    )
 
     with open(testset_path, "r", encoding="utf-8") as f:
         testset = json.load(f)
@@ -51,9 +65,13 @@ def build_dataset(testset_path: str, fixtures_glob: str):
             "eval/fixtures/generate_fixtures.py first."
         )
 
-    chunks = load_and_chunk(pdf_paths)
+    chunks = load_and_chunk(pdf_paths, use_contextual=use_contextual)
     vector_store = build_vector_store(chunks)
-    retriever = build_hybrid_retriever(vector_store, chunks)
+    # When reranking, retrieve a wider candidate pool (k=10) for the reranker
+    # to actually choose among; otherwise the standard k=3.
+    retriever = build_hybrid_retriever(vector_store, chunks, k=10 if use_rerank else 3)
+    if use_rerank:
+        retriever = build_reranking_retriever(retriever, top_n=3)
     chain = build_qa_chain(retriever)
 
     records = []
@@ -108,9 +126,11 @@ def main() -> int:
     parser.add_argument("--testset", default=DEFAULT_TESTSET_PATH)
     parser.add_argument("--fixtures-glob", default=DEFAULT_FIXTURES_GLOB)
     parser.add_argument("--report", default=DEFAULT_REPORT_PATH)
+    parser.add_argument("--contextual", action="store_true", help="Use contextual-retrieval chunking.")
+    parser.add_argument("--rerank", action="store_true", help="Add cross-encoder reranking on top of hybrid retrieval.")
     args = parser.parse_args()
 
-    dataset, records = build_dataset(args.testset, args.fixtures_glob)
+    dataset, records = build_dataset(args.testset, args.fixtures_glob, use_contextual=args.contextual, use_rerank=args.rerank)
     scores = score(dataset)
 
     os.makedirs(os.path.dirname(args.report), exist_ok=True)

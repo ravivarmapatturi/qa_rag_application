@@ -12,11 +12,14 @@ from typing import Iterable, Optional
 
 from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
-from langchain.retrievers import BM25Retriever, EnsembleRetriever
+from langchain.retrievers import BM25Retriever, ContextualCompressionRetriever, EnsembleRetriever
+from langchain.retrievers.document_compressors import CrossEncoderReranker
+from langchain_community.cross_encoders import HuggingFaceCrossEncoder
 from langchain_community.vectorstores.chroma import Chroma
 from langchain_core.prompts import ChatPromptTemplate
 
 from chunking_strategies import CHUNKING_STRATEGY
+from contextual_retrieval import contextualize_chunks
 from parser import PARSING_PDF
 from query_translation import chatgpt, embeddings
 
@@ -35,13 +38,26 @@ def load_and_chunk(
     pdf_paths: Iterable[str],
     parsing_strategy: str = "PyMuPDFLoader",
     chunking_strategy: str = "RecursiveCharacterTextSplitter",
+    use_contextual: bool = False,
+    contextual_llm=None,
 ):
-    """Parse every PDF in `pdf_paths` and split the combined docs into chunks."""
+    """Parse every PDF in `pdf_paths` and split the combined docs into chunks.
+
+    If `use_contextual` is True, each chunk gets an LLM-generated blurb
+    situating it within its source document prepended before it's returned
+    (see contextual_retrieval.py) -- one extra LLM call per chunk, so this is
+    opt-in rather than the default.
+    """
     docs = []
     for path in pdf_paths:
         docs.extend(PARSING_PDF(parsing_strategy, path))
     splitter = CHUNKING_STRATEGY(chunking_strategy)
-    return splitter.split_documents(docs)
+    chunks = splitter.split_documents(docs)
+
+    if use_contextual:
+        chunks = contextualize_chunks(chunks, contextual_llm or chatgpt)
+
+    return chunks
 
 
 def build_vector_store(chunks, persist_directory: Optional[str] = None) -> Chroma:
@@ -61,6 +77,23 @@ def build_hybrid_retriever(
     sparse = BM25Retriever.from_documents(chunks)
     sparse.k = k
     return EnsembleRetriever(retrievers=[dense, sparse], weights=[dense_weight, sparse_weight])
+
+
+def build_reranking_retriever(
+    base_retriever,
+    top_n: int = 3,
+    model_name: str = "cross-encoder/ms-marco-MiniLM-L-6-v2",
+) -> ContextualCompressionRetriever:
+    """Wrap `base_retriever` with cross-encoder reranking, via LangChain's own
+    CrossEncoderReranker/HuggingFaceCrossEncoder -- no custom scoring logic.
+
+    `base_retriever` should return a wider candidate pool than `top_n` (e.g.
+    build_hybrid_retriever(..., k=10)) so there's something for the reranker
+    to actually rerank.
+    """
+    cross_encoder = HuggingFaceCrossEncoder(model_name=model_name)
+    compressor = CrossEncoderReranker(model=cross_encoder, top_n=top_n)
+    return ContextualCompressionRetriever(base_compressor=compressor, base_retriever=base_retriever)
 
 
 def build_qa_chain(retriever, llm=None):
