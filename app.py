@@ -32,6 +32,7 @@ from langchain_core.prompts import MessagesPlaceholder
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
 from contextual_retrieval import contextualize_chunks
 from rag_pipeline import build_reranking_retriever
+from agentic_rag import build_app as build_agentic_app
 
 __import__('pysqlite3')  # Import the pysqlite3 module
 import sys
@@ -97,7 +98,8 @@ prompting_method = st.sidebar.selectbox(
         "RAG Fusion",
         "Decomposition",
         "Step Back",
-        "HyDE"
+        "HyDE",
+        "Agentic Router (auto: simple / multi-hop / complex)"
     ]
     )
 
@@ -178,6 +180,7 @@ else:
         st.session_state.vectorstore_retreiver = st.session_state.vector_db.as_retriever(search_kwargs={"k": retrieval_k})
         st.session_state.keyword_retriever = BM25Retriever.from_documents(doc_chunks)
         st.session_state.keyword_retriever.k = retrieval_k
+        st.session_state.doc_chunks = doc_chunks
         
 
         # Step 4: Store documents and vector DB in session state for future use
@@ -472,7 +475,25 @@ else:
                 st.session_state.chat_history.append(AIMessage(answer['text']))
                 # st.sidebar.markdown(f"I retrieved the data from this source: {context_text}")
                 # st.sidebar.markdown(f"questions.. ,{result}")
-                
+
+        elif prompting_method == "Agentic Router (auto: simple / multi-hop / complex)":
+            if "agentic_app" not in st.session_state:
+                placeholder.info("Building the routed retrieval graph (extracts entities/relationships for GraphRAG-style multi-hop retrieval -- one LLM call per chunk, this takes a while)...")
+                st.session_state.agentic_app = build_agentic_app(st.session_state.doc_chunks, llm=chatgpt)
+
+            result = st.session_state.agentic_app.invoke({"question": question})
+            answer = result["generation"]
+
+            with st.chat_message("AI"):
+                st.markdown(f"""
+                <div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; margin-bottom: 10px;">
+                    <p style="color: #777; font-size: 12px;">{timestamp}</p>
+                    <p style="font-size: 11px; color: #999;">Route: {result.get('route', 'complex')}</p>
+                    <p style="font-size: 16px;">{answer}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                st.session_state.chat_history.append(AIMessage(answer))
+
         else:
             # Default (Based on User Query)
             pass

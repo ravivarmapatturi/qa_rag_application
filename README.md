@@ -7,14 +7,18 @@ This repository contains a QA RAG (Retrieval-Augmented Generation) chat applicat
 - **Chunking Strategies**: Choose from different text chunking methods to suit your needs for document processing:
     - `RecursiveCharacterTextSplitter`
     - `CharacterTextSplitter`
-    - `Titoken`
-    - `Semantic`
+    - `tiktoken`
+    - `semantic`
+    - Optionally layered on top: **contextual-retrieval chunking** (an LLM-generated blurb situating each chunk within its source document, prepended before embedding -- see [Retrieval Enhancements](#retrieval-enhancements)).
 
 - **Parsing Strategies**: Select the most suitable strategy for parsing various document types:
     - `pdfium`
     - `PyMuPDFLoader`
     - `PyPDFLoader`
     - `PDFMinerLoader`
+    - `docling`
+
+- **Hybrid retrieval**: dense (Chroma) + sparse (BM25) retrieval combined via an `EnsembleRetriever`, optionally reranked with a cross-encoder (see [Retrieval Enhancements](#retrieval-enhancements)).
 
 - **Prompting Methods**: Customize your prompting approach to control the flow and depth of the answers:
     - `Default (Based on User Query)`
@@ -23,6 +27,7 @@ This repository contains a QA RAG (Retrieval-Augmented Generation) chat applicat
     - `Decomposition`
     - `Step Back`
     - `HyDE`
+    - `Agentic Router` -- classifies each question and routes it to naive retrieval, GraphRAG-style multi-hop retrieval, or a self-correcting agent loop (see [Agentic Routing](#agentic-routing--graphrag-style-multi-hop-retrieval)).
 
 ## Setup Instructions
 
@@ -60,7 +65,10 @@ This repository contains a QA RAG (Retrieval-Augmented Generation) chat applicat
 - **chunking_strategies.py**: Contains different chunking strategies used for processing the text.
 - **query_translation.py**: Handles query re-writing and transformation.
 - **parser.py**: Includes different parsers for processing documents.
-- **rag_pipeline.py**: The single-turn parse → chunk → index → hybrid-retrieve → generate pipeline as plain importable functions, shared by the eval harness (app.py's interactive chat has its own history-aware variant of the same pipeline).
+- **rag_pipeline.py**: The single-turn parse → chunk → index → hybrid-retrieve → generate pipeline as plain importable functions, shared by the eval harness (app.py's interactive chat has its own history-aware variant of the same pipeline). Also has the contextual-retrieval and cross-encoder-reranking retriever builders.
+- **contextual_retrieval.py**: LLM-generated per-chunk context, following Anthropic's published contextual-retrieval technique.
+- **graph_retrieval.py**: GraphRAG-style multi-hop retrieval (LLM-extracted entity/relationship graph + NetworkX traversal) -- not Microsoft's `graphrag` package, see the module docstring for why.
+- **agentic_rag.py**: LangGraph router that classifies each question and sends it to naive retrieval, graph retrieval, or a CRAG-style self-correcting agent loop.
 - **eval/**: RAGAS-based eval suite -- fixed test set, fixture documents, and the eval runner. See [Evaluation](#evaluation) below.
 - **Dockerfile**: Docker configuration for containerizing the application.
 - **requirements.txt**: List of required Python packages.
@@ -89,6 +97,33 @@ This repository contains a QA RAG (Retrieval-Augmented Generation) chat applicat
     - Decomposition
     - Step Back
     - HyDE
+    - Agentic Router
+
+4. **Optional retrieval enhancements** (sidebar checkboxes): contextual retrieval and cross-encoder reranking, independent of which prompting method is selected. See [Retrieval Enhancements](#retrieval-enhancements).
+
+## Retrieval Enhancements
+
+- **Contextual retrieval** (`contextual_retrieval.py`): prepends a short LLM-generated summary situating each chunk within its source document before it's embedded and BM25-indexed, following [Anthropic's published contextual-retrieval technique](https://www.anthropic.com/news/contextual-retrieval) (same prompt template and prepend-before-embed pattern as their reference implementation). Adapted to call through this repo's existing LLM (Groq) rather than the Anthropic API directly, to avoid a third required API key for one step. One extra LLM call per chunk at indexing time -- opt-in via the sidebar checkbox.
+- **Cross-encoder reranking**: retrieves a wider candidate pool from the hybrid retriever and reranks it with `cross-encoder/ms-marco-MiniLM-L-6-v2` via LangChain's `CrossEncoderReranker`/`HuggingFaceCrossEncoder` (no custom scoring logic).
+
+## Agentic Routing / GraphRAG-Style Multi-Hop Retrieval
+
+`agentic_rag.py` adapts LangGraph's published Adaptive-RAG / Corrective-RAG (CRAG) reference pattern: a
+structured-output router classifies each question, then routes it down one of three paths:
+
+- **simple** -- straight to the existing hybrid retriever, no extra overhead.
+- **multi_hop** -- `graph_retrieval.py`'s **GraphRAG-style multi-hop retrieval**: an LLM extracts
+  (entity, relation, entity) triples from every chunk into a NetworkX graph at index time, and a question is
+  answered by matching entities it mentions and traversing up to N hops to pull in connected chunks. **This is
+  not Microsoft's `graphrag` package** -- that library ships its own indexing pipeline (Leiden community
+  detection, hierarchical community summarization) built for large corpora with real community structure, and
+  wouldn't be meaningfully exercisable at this project's scale. This module implements the same conceptual
+  technique (entity/relationship extraction, graph traversal) directly on the existing LangChain/NetworkX stack.
+  Falls back to hybrid retrieval if no graph entities match the question.
+- **complex** -- an agent loop: the question is decomposed into 2-3 sub-questions, each answered through a
+  bounded CRAG-style self-correction loop (retrieve → grade each document's relevance with an LLM call → if
+  none are relevant, rewrite the query and retry once → answer from the relevant documents), then the
+  sub-answers are synthesized into one final answer.
 
 ## Evaluation
 
@@ -110,6 +145,17 @@ faithfulness, answer relevancy, context precision, and context recall. Results a
 
 To edit the fixture documents, edit the `.txt` files in `eval/fixtures/sources/` and regenerate the PDFs with
 `python eval/fixtures/generate_fixtures.py`.
+
+Pass `--contextual` and/or `--rerank` to score the retrieval enhancements against the same fixed test set, or
+`--agentic` to score the LangGraph router instead of the plain pipeline (mutually exclusive with the other two
+-- the router builds its own index and graph internally). Each takes its own `--report` path so runs can be
+compared directly:
+
+```bash
+python eval/run_eval.py --report eval/results/baseline.json
+python eval/run_eval.py --contextual --rerank --report eval/results/enhanced.json
+python eval/run_eval.py --agentic --report eval/results/agentic.json
+```
 
 ## Contributing
 
