@@ -37,7 +37,6 @@ from langgraph.graph import END, StateGraph
 from pydantic import BaseModel, Field
 
 from graph_retrieval import build_graph, graph_retrieve
-from observability import trace_config
 from query_translation import chatgpt
 from rag_pipeline import QA_SYSTEM_PROMPT, build_hybrid_retriever, build_vector_store, load_and_chunk
 

@@ -19,7 +19,7 @@ against known graph node names, not an embedding-based entity linker --
 a deliberate scope simplification, noted here so it isn't mistaken for a
 production entity-resolution system.
 """
-from typing import List, Optional
+from typing import List
 
 import networkx as nx
 from langchain_core.documents import Document
