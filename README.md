@@ -153,10 +153,13 @@ python -m pytest tests/ -v
 Unit tests for `parser.py` (each lightweight parsing strategy against the eval fixture PDFs), `chunking_strategies.py`,
 `graph_retrieval.py`'s traversal logic (hop reachability, undirected traversal, entity matching, no-match fallback),
 `rag_pipeline.py`'s hybrid retrieval and answer shape, `rag_pipeline.build_reranking_retriever`, `agentic_rag.py`'s
-routing/grading/decomposition logic and graph topology, and `observability.py`'s tracing-enabled/disabled behavior.
-None of these need real API keys -- LLM calls that need real output use a `FakeListChatModel`; calls using structured
-output (routing, grading, decomposition) use small stub LLMs that return canned Pydantic results, since
-`FakeListChatModel` doesn't emulate tool-calling realistically. Runs in CI on every push via `.github/workflows/tests.yml`.
+routing/grading/decomposition logic and graph topology, `observability.py`'s tracing-enabled/disabled behavior, and
+`cost_tracking.py`'s token/cost/latency math (including an end-to-end check that usage actually gets captured through
+a fake model built to match how ChatGroq/ChatOpenAI really report usage -- see that test file's docstring for why a
+naive fake model silently produces empty usage data). None of these need real API keys -- LLM calls that need real
+output use a `FakeListChatModel`; calls using structured output (routing, grading, decomposition) use small stub
+LLMs that return canned Pydantic results, since `FakeListChatModel` doesn't emulate tool-calling realistically. Runs
+in CI on every push via `.github/workflows/tests.yml`.
 
 ## Evaluation
 
@@ -178,6 +181,14 @@ faithfulness, answer relevancy, context precision, and context recall. Results a
 
 To edit the fixture documents, edit the `.txt` files in `eval/fixtures/sources/` and regenerate the PDFs with
 `python eval/fixtures/generate_fixtures.py`.
+
+Each report also includes a `cost_latency` block: p50/p95/mean/max latency across the test set, total input/output
+tokens, and total + per-query cost in USD (via `cost_tracking.py`, using the small pricing table for the models
+`query_translation.get_llm` can build -- unpriced models report token counts with `cost_usd: null` rather than a
+silently wrong number). Token usage comes from a `UsageMetadataCallbackHandler` attached alongside the Langfuse
+callback (`observability.usage_tracking_config()`) -- piggybacking on the same tracing wiring rather than separate
+instrumentation. The same per-call token usage and cost are also visible per-span in the Langfuse dashboard itself
+whenever tracing is enabled, with no extra code needed there.
 
 Pass `--contextual` and/or `--rerank` to score the retrieval enhancements against the same fixed test set, or
 `--agentic` to score the LangGraph router instead of the plain pipeline (mutually exclusive with the other two

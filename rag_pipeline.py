@@ -110,12 +110,17 @@ def build_qa_chain(retriever, llm=None):
     return create_retrieval_chain(retriever, question_answer_chain)
 
 
-def answer(question: str, chain) -> dict:
+def answer(question: str, chain, usage_handler=None) -> dict:
     """Run one single-turn question through a chain built by build_qa_chain.
 
     Returns {"answer": str, "contexts": list[str]} -- the shape RAGAS expects
-    for its `answer` and `contexts` fields.
+    for its `answer` and `contexts` fields. Pass a UsageMetadataCallbackHandler
+    (see observability.usage_tracking_config) as `usage_handler` to also
+    track token usage for this call.
     """
-    result = chain.invoke({"input": question}, config=trace_config(run_name="rag_pipeline.answer"))
+    config = trace_config(run_name="rag_pipeline.answer")
+    if usage_handler is not None:
+        config["callbacks"] = [*config.get("callbacks", []), usage_handler]
+    result = chain.invoke({"input": question}, config=config)
     contexts = [doc.page_content for doc in result.get("context", [])]
     return {"answer": result["answer"], "contexts": contexts}

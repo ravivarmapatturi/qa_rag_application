@@ -67,16 +67,25 @@ def build_dataset(
             "eval/fixtures/generate_fixtures.py first."
         )
 
+    from cost_tracking import timed, total_tokens_and_cost
+    from observability import usage_tracking_config
+
     if use_agentic:
         from agentic_rag import build_app_from_pdfs
-        from observability import trace_config
 
         app = build_app_from_pdfs(pdf_paths)
 
         def ask(question: str) -> dict:
-            result = app.invoke({"question": question}, config=trace_config(run_name="eval agentic"))
+            config, usage_handler = usage_tracking_config(run_name="eval agentic")
+            with timed() as t:
+                result = app.invoke({"question": question}, config=config)
             contexts = [doc.page_content for doc in result.get("documents", [])]
-            return {"answer": result["generation"], "contexts": contexts}
+            return {
+                "answer": result["generation"],
+                "contexts": contexts,
+                "latency_seconds": t.elapsed_seconds,
+                "usage": total_tokens_and_cost(usage_handler.usage_metadata),
+            }
 
     else:
         from rag_pipeline import answer, build_hybrid_retriever, build_qa_chain, build_reranking_retriever, build_vector_store, load_and_chunk
@@ -91,17 +100,26 @@ def build_dataset(
         chain = build_qa_chain(retriever)
 
         def ask(question: str) -> dict:
-            return answer(question, chain)
+            _, usage_handler = usage_tracking_config()
+            with timed() as t:
+                result = answer(question, chain, usage_handler=usage_handler)
+            result["latency_seconds"] = t.elapsed_seconds
+            result["usage"] = total_tokens_and_cost(usage_handler.usage_metadata)
+            return result
 
     records = []
     samples = []
+    latencies = []
     for item in testset:
         result = ask(item["question"])
+        latencies.append(result["latency_seconds"])
         record = {
             "question": item["question"],
             "ground_truth": item["ground_truth"],
             "answer": result["answer"],
             "contexts": result["contexts"],
+            "latency_seconds": result["latency_seconds"],
+            "usage": result["usage"],
         }
         records.append(record)
         samples.append(
@@ -113,7 +131,7 @@ def build_dataset(
             )
         )
 
-    return EvaluationDataset(samples=samples), records
+    return EvaluationDataset(samples=samples), records, latencies
 
 
 def score(dataset) -> dict:
@@ -150,7 +168,7 @@ def main() -> int:
     parser.add_argument("--agentic", action="store_true", help="Route through the LangGraph agentic router instead of the plain pipeline.")
     args = parser.parse_args()
 
-    dataset, records = build_dataset(
+    dataset, records, latencies = build_dataset(
         args.testset,
         args.fixtures_glob,
         use_contextual=args.contextual,
@@ -159,9 +177,20 @@ def main() -> int:
     )
     scores = score(dataset)
 
+    from cost_tracking import latency_summary
+
+    total_cost_usd = sum(r["usage"]["cost_usd"] for r in records if r["usage"]["cost_usd"] is not None) or None
+    cost_latency = {
+        "latency": latency_summary(latencies),
+        "total_input_tokens": sum(r["usage"]["input_tokens"] for r in records),
+        "total_output_tokens": sum(r["usage"]["output_tokens"] for r in records),
+        "total_cost_usd": total_cost_usd,
+        "cost_usd_per_query": (total_cost_usd / len(records)) if total_cost_usd is not None and records else None,
+    }
+
     os.makedirs(os.path.dirname(args.report), exist_ok=True)
     with open(args.report, "w", encoding="utf-8") as f:
-        json.dump({"scores": scores, "records": records}, f, indent=2)
+        json.dump({"scores": scores, "cost_latency": cost_latency, "records": records}, f, indent=2)
 
     print("\nRAGAS eval results (mean over %d questions):" % len(records))
     failed = []
@@ -171,6 +200,16 @@ def main() -> int:
         if status != "OK":
             failed.append(name)
         print(f"  {name:<20} {value:.3f}  [{status}]" if value is not None else f"  {name:<20} n/a")
+
+    lat = cost_latency["latency"]
+    print("\nLatency: p50=%.2fs p95=%.2fs mean=%.2fs" % (lat["p50_seconds"], lat["p95_seconds"], lat["mean_seconds"]))
+    if cost_latency["total_cost_usd"] is not None:
+        print("Cost: $%.5f total, $%.5f/query (%d input + %d output tokens)" % (
+            cost_latency["total_cost_usd"], cost_latency["cost_usd_per_query"],
+            cost_latency["total_input_tokens"], cost_latency["total_output_tokens"],
+        ))
+    else:
+        print(f"Cost: unknown model pricing -- tokens used: {cost_latency['total_input_tokens']} in / {cost_latency['total_output_tokens']} out (see cost_tracking.MODEL_PRICING_PER_MILLION_TOKENS)")
     print(f"\nFull report written to {args.report}")
 
     if failed:
