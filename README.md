@@ -1,210 +1,176 @@
 # QA RAG Chat Application
 
-This repository contains a QA RAG (Retrieval-Augmented Generation) chat application that allows for dynamic querying and information retrieval from various document formats. The app provides flexibility in how the text is chunked, parsed, and prompted, offering a highly customizable experience for text extraction and question answering tasks.
+A retrieval-augmented Q&A chatbot for PDF documents that doubles as a RAG technique sandbox: every stage — parsing, chunking, retrieval, query transformation — is swappable at runtime, and an agentic router sits on top that picks a different retrieval strategy per question, including GraphRAG-style multi-hop retrieval and CRAG-style self-correction.
 
-## Features
+[Live demo](#live-demo) · [Report a bug](../../issues) · [Request a feature](../../issues)
 
-- **Chunking Strategies**: Choose from different text chunking methods to suit your needs for document processing:
-    - `RecursiveCharacterTextSplitter`
-    - `CharacterTextSplitter`
-    - `tiktoken`
-    - `semantic`
-    - Optionally layered on top: **contextual-retrieval chunking** (an LLM-generated blurb situating each chunk within its source document, prepended before embedding -- see [Retrieval Enhancements](#retrieval-enhancements)).
+## Table of Contents
 
-- **Parsing Strategies**: Select the most suitable strategy for parsing various document types:
-    - `pdfium`
-    - `PyMuPDFLoader`
-    - `PyPDFLoader`
-    - `PDFMinerLoader`
-    - `docling`
+- [About The Project](#about-the-project)
+- [Architecture](#architecture)
+- [What's Actually Built Here](#whats-actually-built-here)
+- [Eval, Observability & Testing](#eval-observability--testing)
+- [Built With](#built-with)
+- [Getting Started](#getting-started)
+- [Usage](#usage)
+- [Roadmap](#roadmap)
+- [Live Demo](#live-demo)
+- [License](#license)
 
-- **Hybrid retrieval**: dense (Chroma) + sparse (BM25) retrieval combined via an `EnsembleRetriever`, optionally reranked with a cross-encoder (see [Retrieval Enhancements](#retrieval-enhancements)).
+## About The Project
 
-- **Prompting Methods**: Customize your prompting approach to control the flow and depth of the answers:
-    - `Default (Based on User Query)`
-    - `Multi-Query`
-    - `RAG Fusion`
-    - `Decomposition`
-    - `Step Back`
-    - `HyDE`
-    - `Agentic Router` -- classifies each question and routes it to naive retrieval, GraphRAG-style multi-hop retrieval, or a self-correcting agent loop (see [Agentic Routing](#agentic-routing--graphrag-style-multi-hop-retrieval)).
+Started as a side-by-side comparison sandbox for RAG design choices most tutorials just pick one of — 5 PDF parsers, 4 chunking strategies, 6 query-transformation methods, all switchable from the sidebar. It's grown a second, more production-shaped path alongside that: an agentic router (`agentic_rag.py`) that classifies each question and sends it down the retrieval strategy that actually fits — a single-fact lookup doesn't need the same machinery as a question that requires connecting facts across multiple documents.
 
-## Setup Instructions
+- **5 PDF parsing backends** — `pdfium`, `PyMuPDFLoader`, `PyPDFLoader`, `PDFMinerLoader`, `docling`.
+- **4 chunking strategies** — fixed-character, recursive-character, token-aware (`tiktoken`), and embedding-based semantic chunking — plus optional **contextual-retrieval chunking** (see below).
+- **Hybrid retrieval** — dense vector search (Chroma) + BM25 keyword search via LangChain's `EnsembleRetriever`, weighted 0.3/0.7 toward keyword.
+- **Optional cross-encoder reranking** on top of hybrid retrieval.
+- **6 query-transformation strategies** in the manual UI path — default, Multi-Query, RAG-Fusion, Decomposition, Step-Back, HyDE.
+- **Agentic router** — 3-way question classification (`simple` / `multi_hop` / `complex`), each routed to a different retrieval strategy, including GraphRAG-style multi-hop graph traversal and a bounded CRAG-style grade/rewrite/retry loop.
+- **Conversational, history-aware retrieval** in the manual chat path.
 
-1. **Clone the Repository**:
-    ```bash
-    git clone https://github.com/yourusername/qa-rag-chat-application.git
-    cd qa-rag-chat-application
-    ```
+## Architecture
 
-2. **Install Requirements**:
-    Ensure that Python is installed, then install the required dependencies:
-    ```bash
-    pip install -r requirements.txt
-    ```
+**Manual path** — pick a strategy per stage, ask one-off questions:
 
-3. **Set Up Environment**:
-    Copy `.env.example` to `.env` and fill in your keys:
-    ```bash
-    cp .env.example .env
-    # then edit .env:
-    OPENAI_API_KEY=your-openai-key
-    GROQ_API_KEY=your-groq-key
-    ```
-    `.env` is loaded automatically at startup via `python-dotenv`.
+```mermaid
+flowchart LR
+    subgraph Ingest["Ingestion (on upload)"]
+        A[PDF upload] --> B["Parse\npdfium / PyMuPDF / PyPDF /\nPDFMiner / docling"]
+        B --> C["Chunk\nrecursive / character /\ntiktoken / semantic"]
+        C --> D["Embed\nBAAI/bge-small-en"]
+        D --> E[(Chroma\nvector store)]
+        C --> F[(BM25\nkeyword index)]
+    end
 
-4. **Run the Application**:
-    To start the application, run:
-    ```bash
-    streamlit run app.py
-    ```
+    subgraph Query["Query (per question)"]
+        G[User question] --> H[History-aware\nreformulation]
+        H --> I["Query transform\nMulti-Query / RAG-Fusion /\nDecomposition / Step-Back / HyDE"]
+        I --> J["Hybrid retrieval\nEnsembleRetriever (0.3 vector / 0.7 BM25)"]
+        E --> J
+        F --> J
+        J --> K[LLM answer]
+    end
+```
 
-## File Structure
+**Agentic path** (`agentic_rag.py`) — a real LangGraph `StateGraph`, not a linear chain:
 
-- **app.py**: The main application file that ties everything together.
-- **chunking_strategies.py**: Contains different chunking strategies used for processing the text.
-- **query_translation.py**: Handles query re-writing and transformation.
-- **parser.py**: Includes different parsers for processing documents.
-- **rag_pipeline.py**: The single-turn parse → chunk → index → hybrid-retrieve → generate pipeline as plain importable functions, shared by the eval harness (app.py's interactive chat has its own history-aware variant of the same pipeline). Also has the contextual-retrieval and cross-encoder-reranking retriever builders.
-- **contextual_retrieval.py**: LLM-generated per-chunk context, following Anthropic's published contextual-retrieval technique.
-- **graph_retrieval.py**: GraphRAG-style multi-hop retrieval (LLM-extracted entity/relationship graph + NetworkX traversal) -- not Microsoft's `graphrag` package, see the module docstring for why.
-- **agentic_rag.py**: LangGraph router that classifies each question and sends it to naive retrieval, graph retrieval, or a CRAG-style self-correcting agent loop.
-- **observability.py**: Langfuse tracing via LangChain's callback integration, shared by every prompting method and the eval harness. See [Observability](#observability).
-- **eval/**: RAGAS-based eval suite -- fixed test set, fixture documents, and the eval runner. See [Evaluation](#evaluation) below.
-- **tests/**: pytest unit tests, no real API keys required. See [Tests](#tests) below.
-- **Dockerfile**: Docker configuration for containerizing the application.
-- **requirements.txt**: List of required Python packages for running the app.
-- **requirements-dev.txt**: Extra packages needed only for running the test suite (pytest).
-- **packages.txt**: Dependencies for managing additional packages.
-- **.gitignore**: Ensures sensitive files and folders are not tracked by Git.
-- **.env.example**: Template for the `.env` file storing environment variables such as API keys.
+```mermaid
+flowchart TD
+    Q[Question] --> R{route_question\nstructured-output classifier}
+    R -- simple --> S[retrieve_simple\nhybrid retriever]
+    R -- multi_hop --> M["retrieve_multi_hop\nGraphRAG-style graph traversal\n(falls back to hybrid if no entities match)"]
+    R -- complex --> C["complex node\ndecompose -> per-sub-question\nretrieve / CRAG-grade / rewrite-retry\n-> synthesize"]
+    S --> G[generate]
+    M --> G
+    G --> END1[End]
+    C --> END2[End]
+```
 
-## Usage
+The same embedding model (`BAAI/bge-small-en`) is used at both index time and query time throughout — mismatching embedding models between the two silently breaks vector similarity, an easy mistake this avoids by construction (`query_translation.py` is the single source both `app.py` and the retrievers import from).
 
-1. **Select Chunking Strategy**: In the sidebar, choose the chunking strategy that fits your needs. The available options are:
-    - RecursiveCharacterTextSplitter
-    - CharacterTextSplitter
-    - Titoken
-    - Semantic
+## What's Actually Built Here
 
-2. **Select Parsing Strategy**: Choose how the documents should be parsed from the available options:
-    - pdfium
-    - PyMuPDFLoader
-    - PyPDFLoader
-    - PDFMinerLoader
+Being specific about the split, since a lot of the plumbing in any RAG app comes from a library:
 
-3. **Select Prompting Method**: Choose the desired prompting method for the chat application:
-    - Default (Based on User Query)
-    - Multi-Query
-    - RAG Fusion
-    - Decomposition
-    - Step Back
-    - HyDE
-    - Agentic Router
+- **LangChain/LangChain-community provide**: document loaders, text splitters, `Chroma`/`BM25Retriever` wrappers, `EnsembleRetriever`, `MultiQueryRetriever`, `create_history_aware_retriever`, `CrossEncoderReranker` + `HuggingFaceCrossEncoder` for reranking.
+- **LangGraph provides**: `StateGraph`, conditional edges — the routing/branching mechanics.
+- **RAGAS provides**: the eval metric implementations (faithfulness, answer relevancy, context precision, context recall) — no custom scoring logic.
+- **Adapted from published reference techniques, not built from scratch, but genuinely implemented rather than just imported**:
+  - *Contextual retrieval* (`contextual_retrieval.py`) follows [Anthropic's published technique](https://www.anthropic.com/news/contextual-retrieval) — same document/chunk prompt template and "prepend context, then embed" pattern as their reference cookbook. Adapted to call the LLM already wired up here (Groq) instead of the Anthropic API directly, which means losing their prompt-caching cost optimization — each chunk is a full LLM call with the whole document in context, meaningfully slower/pricier than plain chunking, which is why it's opt-in.
+  - *The agentic router's Adaptive-RAG / CRAG shape* (`agentic_rag.py`) adapts [LangGraph's own published reference notebooks](https://github.com/langchain-ai/langgraph) (`langgraph_adaptive_rag.ipynb`, `langgraph_crag.ipynb`) — same shape: structured-output router, per-document LLM relevance grading, a conditional edge deciding generate vs. rewrite-and-retry.
+- **Fully custom, built for this project specifically**:
+  - GraphRAG-style multi-hop retrieval (`graph_retrieval.py`) — LLM-extracted (entity, relation, entity) triples assembled into a NetworkX `MultiDiGraph`, with query-time entity matching and bounded-hop graph traversal to pull in chunks connected to the question's entities, not just chunks that textually resemble it. **Not** Microsoft's `graphrag` package — that ships its own indexing pipeline (Leiden community detection, hierarchical summarization) built for large corpora; this implements the same conceptual technique directly on this repo's existing LangChain/NetworkX stack, at a scope that's actually exercisable and verifiable here. Worth knowing before relying on it: entity linking at query time is a plain case-insensitive substring match against known graph node names, not an embedding-based linker — a deliberate scope simplification, not a production entity-resolution system.
+  - The reciprocal-rank-fusion function for RAG-Fusion, the query-decomposition/step-back prompt chains, the runtime strategy-selection layer, and the hybrid-retrieval weighting choice (0.3/0.7) itself.
+  - The `rag_pipeline.py` module that both the interactive app and the eval/CI harness share, so eval numbers reflect the same code path a user actually hits — not a separate, divergent "eval version" of the pipeline.
 
-4. **Optional retrieval enhancements** (sidebar checkboxes): contextual retrieval and cross-encoder reranking, independent of which prompting method is selected. See [Retrieval Enhancements](#retrieval-enhancements).
+## Eval, Observability & Testing
 
-## Retrieval Enhancements
+- **RAGAS eval harness** (`eval/run_eval.py`) — a fixed 12-question test set against 2 fixture documents, scored on faithfulness, answer relevancy, context precision, and context recall. Runs against any of 3 modes (baseline hybrid, `--contextual --rerank`, or `--agentic`) so they're directly comparable, and is wired into CI (`.github/workflows/eval.yml`) gated at a 0.7 threshold per metric.
+- **No published baseline numbers yet** — the eval harness is real and runs end-to-end, but scoring it requires a live LLM call per question (both for generation and for RAGAS's own LLM-graded metrics), and CI doesn't have `OPENAI_API_KEY`/`GROQ_API_KEY` configured yet. This section will get real numbers instead of this paragraph once that's set up — reporting a fabricated score would defeat the point of having the eval harness at all.
+- **Langfuse tracing** (`observability.py`) — wired via LangChain's own callback integration, no hand-rolled span bookkeeping. Every node in the agentic router forwards its `config` into nested calls, so a full agentic run (route → retrieve/grade/rewrite → generate) shows up as one nested trace, not disconnected spans. Falls back to no-op cleanly if `LANGFUSE_*` env vars aren't set — tracing is opt-in, not required to run the app.
+- **Cost/latency tracking** (`cost_tracking.py`) — token-usage-to-USD estimation and p50/p95 latency percentiles for the eval report. **In progress as of this README**: the module exists and works, but isn't merged into the observability/eval integration yet.
+- **24 pytest tests** across parsing, chunking, graph construction/traversal, the shared pipeline, reranking, and the agentic router (`tests/`), run in CI on every push/PR (`.github/workflows/tests.yml`).
+- **A real bug this testing discipline caught**: the LLM-selector dropdown in the UI read a value but nothing downstream ever consulted it — every chain was built once at import time against one hardcoded model, so switching the dropdown did nothing. Fixed by turning the module-level chain objects into `build_*(llm)` functions and threading the selected model through; validated with two fake chat models standing in for different real ones, confirming the selection actually reaches the chain.
 
-- **Contextual retrieval** (`contextual_retrieval.py`): prepends a short LLM-generated summary situating each chunk within its source document before it's embedded and BM25-indexed, following [Anthropic's published contextual-retrieval technique](https://www.anthropic.com/news/contextual-retrieval) (same prompt template and prepend-before-embed pattern as their reference implementation). Adapted to call through this repo's existing LLM (Groq) rather than the Anthropic API directly, to avoid a third required API key for one step. One extra LLM call per chunk at indexing time -- opt-in via the sidebar checkbox.
-- **Cross-encoder reranking**: retrieves a wider candidate pool from the hybrid retriever and reranks it with `cross-encoder/ms-marco-MiniLM-L-6-v2` via LangChain's `CrossEncoderReranker`/`HuggingFaceCrossEncoder` (no custom scoring logic).
+## Built With
 
-## Agentic Routing / GraphRAG-Style Multi-Hop Retrieval
+[![Python](https://img.shields.io/badge/Python-3776AB?style=flat-square&logo=python&logoColor=white)](https://www.python.org/)
+[![LangChain](https://img.shields.io/badge/LangChain-1C3C3C?style=flat-square)](https://www.langchain.com/)
+[![LangGraph](https://img.shields.io/badge/LangGraph-1C3C3C?style=flat-square)](https://www.langchain.com/langgraph)
+[![Streamlit](https://img.shields.io/badge/Streamlit-FF4B4B?style=flat-square&logo=streamlit&logoColor=white)](https://streamlit.io/)
+[![ChromaDB](https://img.shields.io/badge/ChromaDB-000000?style=flat-square)](https://www.trychroma.com/)
+[![NetworkX](https://img.shields.io/badge/NetworkX-3776AB?style=flat-square)](https://networkx.org/)
+[![RAGAS](https://img.shields.io/badge/RAGAS-FF6F61?style=flat-square)](https://docs.ragas.io/)
+[![Langfuse](https://img.shields.io/badge/Langfuse-000000?style=flat-square)](https://langfuse.com/)
+[![Groq](https://img.shields.io/badge/Groq-F55036?style=flat-square)](https://groq.com/)
+[![Docker](https://img.shields.io/badge/Docker-2496ED?style=flat-square&logo=docker&logoColor=white)](https://www.docker.com/)
 
-`agentic_rag.py` adapts LangGraph's published Adaptive-RAG / Corrective-RAG (CRAG) reference pattern: a
-structured-output router classifies each question, then routes it down one of three paths:
+## Getting Started
 
-- **simple** -- straight to the existing hybrid retriever, no extra overhead.
-- **multi_hop** -- `graph_retrieval.py`'s **GraphRAG-style multi-hop retrieval**: an LLM extracts
-  (entity, relation, entity) triples from every chunk into a NetworkX graph at index time, and a question is
-  answered by matching entities it mentions and traversing up to N hops to pull in connected chunks. **This is
-  not Microsoft's `graphrag` package** -- that library ships its own indexing pipeline (Leiden community
-  detection, hierarchical community summarization) built for large corpora with real community structure, and
-  wouldn't be meaningfully exercisable at this project's scale. This module implements the same conceptual
-  technique (entity/relationship extraction, graph traversal) directly on the existing LangChain/NetworkX stack.
-  Falls back to hybrid retrieval if no graph entities match the question.
-- **complex** -- an agent loop: the question is decomposed into 2-3 sub-questions, each answered through a
-  bounded CRAG-style self-correction loop (retrieve → grade each document's relevance with an LLM call → if
-  none are relevant, rewrite the query and retry once → answer from the relevant documents), then the
-  sub-answers are synthesized into one final answer.
+### Prerequisites
 
-## Observability
+- Python 3.10+
+- An OpenAI and/or Groq API key, depending on which LLM you select
+- Optional: a Langfuse account (public/secret key) for tracing; the app runs fine without one
 
-`observability.py` wires in [Langfuse](https://langfuse.com) tracing via LangChain's own callback integration
-(`langfuse.langchain.CallbackHandler`) -- no hand-rolled span/timing bookkeeping. Set `LANGFUSE_PUBLIC_KEY` and
-`LANGFUSE_SECRET_KEY` in `.env` (free tier at [cloud.langfuse.com](https://cloud.langfuse.com), or self-host and
-also set `LANGFUSE_HOST`) and every prompting method -- Default through Agentic Router, plus the eval harness --
-traces automatically. Leave them unset and the app runs exactly the same with tracing silently disabled; a bad
-or unreachable Langfuse endpoint fails the same way (a background warning, not a crash) so tracing can never
-take the app down.
+### Installation
 
-For the Agentic Router specifically, every node function receives the run's `config` from LangGraph and
-forwards it into its own nested LLM calls (routing classification, per-document grading, query rewriting,
-decomposition, generation), so a single question shows up as one trace in Langfuse with each routing/retrieval/
-grading/generation step as a nested span -- not disconnected fragments.
+```bash
+git clone https://github.com/ravivarmapatturi/qa_rag_application.git
+cd qa_rag_application
+pip install -r requirements.txt
+```
 
-## Tests
+Create a `.env` file in the project root:
+
+```
+OPENAI_API_KEY=your_key_here
+GROQ_API_KEY=your_key_here
+# optional
+LANGFUSE_PUBLIC_KEY=your_key_here
+LANGFUSE_SECRET_KEY=your_key_here
+```
+
+Run the interactive app:
+
+```bash
+streamlit run app.py
+```
+
+Run the test suite:
 
 ```bash
 pip install -r requirements-dev.txt
 python -m pytest tests/ -v
 ```
 
-Unit tests for `parser.py` (each lightweight parsing strategy against the eval fixture PDFs), `chunking_strategies.py`,
-`graph_retrieval.py`'s traversal logic (hop reachability, undirected traversal, entity matching, no-match fallback),
-`rag_pipeline.py`'s hybrid retrieval and answer shape, `rag_pipeline.build_reranking_retriever`, `agentic_rag.py`'s
-routing/grading/decomposition logic and graph topology, `observability.py`'s tracing-enabled/disabled behavior, and
-`cost_tracking.py`'s token/cost/latency math (including an end-to-end check that usage actually gets captured through
-a fake model built to match how ChatGroq/ChatOpenAI really report usage -- see that test file's docstring for why a
-naive fake model silently produces empty usage data). None of these need real API keys -- LLM calls that need real
-output use a `FakeListChatModel`; calls using structured output (routing, grading, decomposition) use small stub
-LLMs that return canned Pydantic results, since `FakeListChatModel` doesn't emulate tool-calling realistically. Runs
-in CI on every push via `.github/workflows/tests.yml`.
-
-## Evaluation
-
-Retrieval and generation quality are tracked with a small [RAGAS](https://github.com/explodinggradients/ragas) suite
-against a fixed set of questions over two synthetic fixture documents (`eval/fixtures/docs/`), so changes to
-chunking, retrieval, or prompting can be measured against a baseline instead of eyeballed.
+Run the eval harness (requires an API key; see [Eval, Observability & Testing](#eval-observability--testing)):
 
 ```bash
 pip install -r eval/requirements-eval.txt
-python eval/run_eval.py
-```
-
-This builds a fresh index from the fixture PDFs, answers every question in `eval/testset.json` through the
-same hybrid (dense + BM25) retriever used by the app's default prompting mode, and scores the results on
-faithfulness, answer relevancy, context precision, and context recall. Results are written to
-`eval/results/latest.json` and the run fails (non-zero exit) if any metric falls below `--threshold` (default
-0.7) -- this is what `.github/workflows/eval.yml` runs in CI on every push/PR, given `OPENAI_API_KEY` /
-`GROQ_API_KEY` repo secrets.
-
-To edit the fixture documents, edit the `.txt` files in `eval/fixtures/sources/` and regenerate the PDFs with
-`python eval/fixtures/generate_fixtures.py`.
-
-Each report also includes a `cost_latency` block: p50/p95/mean/max latency across the test set, total input/output
-tokens, and total + per-query cost in USD (via `cost_tracking.py`, using the small pricing table for the models
-`query_translation.get_llm` can build -- unpriced models report token counts with `cost_usd: null` rather than a
-silently wrong number). Token usage comes from a `UsageMetadataCallbackHandler` attached alongside the Langfuse
-callback (`observability.usage_tracking_config()`) -- piggybacking on the same tracing wiring rather than separate
-instrumentation. The same per-call token usage and cost are also visible per-span in the Langfuse dashboard itself
-whenever tracing is enabled, with no extra code needed there.
-
-Pass `--contextual` and/or `--rerank` to score the retrieval enhancements against the same fixed test set, or
-`--agentic` to score the LangGraph router instead of the plain pipeline (mutually exclusive with the other two
--- the router builds its own index and graph internally). Each takes its own `--report` path so runs can be
-compared directly:
-
-```bash
-python eval/run_eval.py --report eval/results/baseline.json
-python eval/run_eval.py --contextual --rerank --report eval/results/enhanced.json
 python eval/run_eval.py --agentic --report eval/results/agentic.json
 ```
 
-## Contributing
+## Usage
 
-Contributions are welcome! Feel free to open an issue or submit a pull request with improvements, bug fixes, or new features.
+**Manual path**: upload PDFs, pick a parsing/chunking/prompting strategy and LLM from the sidebar, ask questions. Follow-ups are automatically reformulated against the conversation before retrieval runs.
+
+**Agentic path**: ask a question; the router classifies it and picks the retrieval strategy — no manual strategy selection needed. A relational/multi-hop question ("how does X relate to Y") pulls in GraphRAG-style traversal; an ambiguous or multi-part question gets decomposed into sub-questions, each independently retrieved and CRAG-graded before a final synthesis step.
+
+## Roadmap
+
+- [ ] Configure `OPENAI_API_KEY`/`GROQ_API_KEY` in CI and publish the first real eval baseline (currently the biggest gap — see [Eval, Observability & Testing](#eval-observability--testing))
+- [ ] Merge cost/latency tracking into the observability integration (code exists in `cost_tracking.py`, not yet wired end-to-end)
+- [ ] Upgrade entity linking in `graph_retrieval.py` beyond substring matching, if multi-hop retrieval quality on the eval set turns out to need it
+- [ ] Add a license file
+
+See the [open issues](../../issues) for the full list.
+
+## Live Demo
+
+[github.io portfolio link] — *(currently being fixed: the previous demo deployment sat behind a Streamlit auth wall; redeploy in progress.)*
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+No license file is currently included in this repository.
