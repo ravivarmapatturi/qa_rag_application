@@ -89,8 +89,8 @@ Being specific about the split, since a lot of the plumbing in any RAG app comes
 - **RAGAS eval harness** (`eval/run_eval.py`) — a fixed 12-question test set against 2 fixture documents, scored on faithfulness, answer relevancy, context precision, and context recall. Runs against any of 3 modes (baseline hybrid, `--contextual --rerank`, or `--agentic`) so they're directly comparable, and is wired into CI (`.github/workflows/eval.yml`) gated at a 0.7 threshold per metric.
 - **No published baseline numbers yet** — the eval harness is real and runs end-to-end, but scoring it requires a live LLM call per question (both for generation and for RAGAS's own LLM-graded metrics), and CI doesn't have `OPENAI_API_KEY`/`GROQ_API_KEY` configured yet. This section will get real numbers instead of this paragraph once that's set up — reporting a fabricated score would defeat the point of having the eval harness at all.
 - **Langfuse tracing** (`observability.py`) — wired via LangChain's own callback integration, no hand-rolled span bookkeeping. Every node in the agentic router forwards its `config` into nested calls, so a full agentic run (route → retrieve/grade/rewrite → generate) shows up as one nested trace, not disconnected spans. Falls back to no-op cleanly if `LANGFUSE_*` env vars aren't set — tracing is opt-in, not required to run the app.
-- **Cost/latency tracking** (`cost_tracking.py`) — token-usage-to-USD estimation and p50/p95 latency percentiles for the eval report. **In progress as of this README**: the module exists and works, but isn't merged into the observability/eval integration yet.
-- **24 pytest tests** across parsing, chunking, graph construction/traversal, the shared pipeline, reranking, and the agentic router (`tests/`), run in CI on every push/PR (`.github/workflows/tests.yml`).
+- **Cost/latency tracking** (`cost_tracking.py`) — token-usage-to-USD estimation and p50/p95 latency percentiles, wired into the eval report via a `UsageMetadataCallbackHandler` attached alongside the same Langfuse callback (`observability.usage_tracking_config()`) rather than separate instrumentation. Every `eval/run_eval.py` run's report includes a `cost_latency` block (total tokens, total/per-query cost, latency percentiles) for whichever mode it scored.
+- **34 pytest tests** across parsing, chunking, graph construction/traversal, the shared pipeline, reranking, the agentic router, observability, and cost tracking (`tests/`), run in CI on every push/PR (`.github/workflows/tests.yml`).
 - **A real bug this testing discipline caught**: the LLM-selector dropdown in the UI read a value but nothing downstream ever consulted it — every chain was built once at import time against one hardcoded model, so switching the dropdown did nothing. Fixed by turning the module-level chain objects into `build_*(llm)` functions and threading the selected model through; validated with two fake chat models standing in for different real ones, confirming the selection actually reaches the chain.
 
 ## Built With
@@ -161,7 +161,6 @@ python eval/run_eval.py --agentic --report eval/results/agentic.json
 ## Roadmap
 
 - [ ] Configure `OPENAI_API_KEY`/`GROQ_API_KEY` in CI and publish the first real eval baseline (currently the biggest gap — see [Eval, Observability & Testing](#eval-observability--testing))
-- [ ] Merge cost/latency tracking into the observability integration (code exists in `cost_tracking.py`, not yet wired end-to-end)
 - [ ] Upgrade entity linking in `graph_retrieval.py` beyond substring matching, if multi-hop retrieval quality on the eval set turns out to need it
 - [ ] Add a license file
 
