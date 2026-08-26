@@ -1,9 +1,9 @@
 from langchain_community.document_loaders import PyPDFLoader,PyMuPDFLoader,PDFMinerLoader
 from langchain_core.documents import Document
 import pypdfium2 as pdfium
-from openai import OpenAI
-# from markitdown import MarkItDown
-from docling.document_converter import DocumentConverter
+# docling is a heavy optional dependency (pulls in torch/transformers) --
+# imported lazily inside the "docling" branch below so the other, much
+# lighter parsing strategies don't require it to be installed at all.
 
 
 
@@ -15,16 +15,19 @@ def PARSING_PDF(parsing_strategy,pdf_path):
         loader = PyPDFLoader(pdf_path)
 
         langchain_docs = loader.load()
-    
+        return langchain_docs
+
     elif parsing_strategy=="PyMuPDFLoader":
         loader = PyMuPDFLoader(pdf_path)
 
         langchain_docs = loader.load()
-        
+        return langchain_docs
+
     elif parsing_strategy=="PDFMinerLoader":
         loader = PDFMinerLoader(pdf_path)
         langchain_docs = loader.load()
-        
+        return langchain_docs
+
     elif parsing_strategy=="pdfium":
         # Load the PDF
         pdf = pdfium.PdfDocument(pdf_path)
@@ -63,44 +66,14 @@ def PARSING_PDF(parsing_strategy,pdf_path):
         
         return langchain_docs
 
-    
-    # elif parsing_strategy=="markitdown":
-        
-    #     client = OpenAI()
-    #     markitdown = MarkItDown(llm_client=client, llm_model="gpt-4")
-        
-    #     # Convert the Markdown file
-    #     result = markitdown.convert(pdf_path)
-        
-    #     # Access the attributes of the result object
-    #     title = result.title or "Unknown"
-    #     text_content = result.text_content or ""
-        
-    #     # Metadata
-    #     metadata = {
-    #         "source": pdf_path,
-    #         "title": title,
-    #     }
-        
-    #     # Create a LangChain Document
-    #     langchain_docs = [
-    #         Document(
-    #             page_content=text_content,
-    #             metadata=metadata
-    #         )
-    #     ]
-        
-    #     return langchain_docs
-    
-    
     elif parsing_strategy=="docling":
-        
+        from docling.document_converter import DocumentConverter
+
         converter = DocumentConverter()
         result = converter.convert(pdf_path)
-        
-        
-        return result.document
-        
+        text = result.document.export_to_markdown()
 
-        
-        
+        return [Document(page_content=text, metadata={"source": pdf_path})]
+
+    else:
+        raise ValueError(f"Unknown parsing strategy: {parsing_strategy}")

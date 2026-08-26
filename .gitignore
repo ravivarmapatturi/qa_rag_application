@@ -2,10 +2,14 @@ __pycache__/
 credentials/
 data/
 vector_db/
+vector_embeddings/
 experimentation/
 .env
 openai_funciton.ipynb
 parser.ipynb
-utils.py 
+utils.py
 validating_pdf_parser.py
 routing.ipynb
+.venv/
+eval/results/
+.pytest_cache/

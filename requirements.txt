@@ -1,4 +1,5 @@
 pip==25.0.1
+python-dotenv
 langchain==0.3.18
 langchain-openai==0.2.8
 langchain-community
@@ -6,6 +7,8 @@ streamlit
 pandas
 pdfplumber==0.11.4
 tabula-py
+pypdf
+pymupdf
 chromadb==0.5.18
 pysqlite3-binary
 jpype1
@@ -14,5 +17,8 @@ sentence_transformers
 langchain-groq==0.2.4
 rank_bm25
 docling
+langgraph<0.4
+networkx
+langfuse
 #sqlite >= 3.35.0
 

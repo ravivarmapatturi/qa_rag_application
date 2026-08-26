@@ -1,6 +1,6 @@
 import os
-import yaml 
-from langchain_openai import ChatOpenAI, OpenAIEmbeddings
+import yaml
+from langchain_openai import ChatOpenAI
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_community.document_loaders import PyMuPDFLoader
 from langchain_community.vectorstores.chroma import Chroma
@@ -22,16 +22,18 @@ from pdfminer.high_level import extract_text
 from langchain_core.messages import HumanMessage, AIMessage ,SystemMessage
 import re
 import datetime
-from query_translation import prompt,chatgpt,rag_chain,rag_chain_multi_query,generate_queries,get_unique_union,reciprocal_rank_fusion,generate_queries_decomposition,decomposition_prompt,format_qa_pair,generate_queries_step_back,response_prompt,generate_docs_for_retrieval,embeddings
+from query_translation import get_llm,build_rag_chain,build_rag_chain_multi_query,build_generate_queries,get_unique_union,reciprocal_rank_fusion,build_generate_queries_decomposition,decomposition_prompt,format_qa_pair,build_generate_queries_step_back,response_prompt,build_generate_docs_for_retrieval,embeddings
 from langchain.chains import create_retrieval_chain
 from chunking_strategies import CHUNKING_STRATEGY
 from parser import PARSING_PDF
-from langchain.chat_models import ChatOpenAI
 from langchain.chains import create_history_aware_retriever
-from langchain.chains import create_retrieval_chain
 from langchain.chains.combine_documents import create_stuff_documents_chain
 from langchain_core.prompts import MessagesPlaceholder
 from langchain.retrievers import BM25Retriever, EnsembleRetriever
+from contextual_retrieval import contextualize_chunks
+from rag_pipeline import build_reranking_retriever
+from agentic_rag import build_app as build_agentic_app
+from observability import trace_config
 
 __import__('pysqlite3')  # Import the pysqlite3 module
 import sys
@@ -62,10 +64,10 @@ uploaded_files = st.sidebar.file_uploader(
 
 chunking_strategy = st.sidebar.selectbox(
     "Chunking Strategy for RAG:",
-    [   
+    [
         "RecursiveCharacterTextSplitter",
         "CharacterTextSplitter",
-        "titoken",
+        "tiktoken",
         "semantic"
     ]
     )
@@ -84,7 +86,6 @@ parsing_strategy = st.sidebar.selectbox(
         "PyMuPDFLoader",
         "PyPDFLoader",
         "PDFMinerLoader",
-        "markitdown",
         "docling"
     ]
     )
@@ -98,13 +99,38 @@ prompting_method = st.sidebar.selectbox(
         "RAG Fusion",
         "Decomposition",
         "Step Back",
-        "HyDE"
+        "HyDE",
+        "Agentic Router (auto: simple / multi-hop / complex)"
     ]
     )
 
+use_contextual_retrieval = st.sidebar.checkbox(
+    "Use contextual retrieval (LLM-generated per-chunk context)",
+    value=False,
+    help="Prepends a short LLM-generated summary situating each chunk within its source document before embedding/indexing (Anthropic's contextual-retrieval technique). Slower and costs one extra LLM call per chunk at indexing time.",
+)
+
+use_reranking = st.sidebar.checkbox(
+    "Use cross-encoder reranking",
+    value=False,
+    help="Retrieves a wider candidate pool and reranks it with a cross-encoder (sentence-transformers ms-marco-MiniLM) before answering.",
+)
+
+# Resolve the selected model once per script run and (re)build every
+# prompting-method chain against it, so the "Select the available LLM
+# Models" dropdown actually changes which model answers instead of every
+# chain being permanently wired to whatever model was live when
+# query_translation.py was first imported.
+chatgpt = get_llm(llm_model)
+rag_chain = build_rag_chain(chatgpt)
+rag_chain_multi_query = build_rag_chain_multi_query(chatgpt)
+generate_queries = build_generate_queries(chatgpt)
+generate_queries_decomposition = build_generate_queries_decomposition(chatgpt)
+generate_queries_step_back = build_generate_queries_step_back(chatgpt)
+generate_docs_for_retrieval = build_generate_docs_for_retrieval(chatgpt)
 
 
-    
+
 
 
 # Check if any files are uploaded
@@ -114,23 +140,25 @@ else:
     # Check if documents have already been processed
     if 'docs' not in st.session_state:
         temp_dir = tempfile.TemporaryDirectory()
+        docs = []
         for file in uploaded_files:
             temp_filepath = os.path.join(temp_dir.name, file.name)
             with open(temp_filepath, "wb") as f:
                 f.write(file.getvalue())
-        
-        
-        # step 1: parsing the pdf
-        docs=PARSING_PDF(parsing_strategy,temp_filepath)
-        
-     
-    
+
+            # step 1: parsing the pdf
+            docs.extend(PARSING_PDF(parsing_strategy, temp_filepath))
+
         # Step 2: Split documents into chunks
         
         text_splitter=CHUNKING_STRATEGY(chunking_strategy)
         print(text_splitter)
         
         doc_chunks = text_splitter.split_documents(docs)
+
+        if use_contextual_retrieval:
+            placeholder.info(f"Generating contextual summaries for {len(doc_chunks)} chunks (one LLM call each, this takes a while)...")
+            doc_chunks = contextualize_chunks(doc_chunks, chatgpt)
 
         # Step 3: Convert chunks into embeddings
         persist_directory = os.path.join(os.getcwd(), "vector_embeddings")
@@ -140,20 +168,24 @@ else:
         if not os.path.exists(persist_directory):
             os.makedirs(persist_directory)
 
-            
-        
-                
-        # embeddings = OpenAIEmbeddings()
-        
-        st.session_state.vector_db = Chroma.from_documents(doc_chunks, embeddings,persist_directory=persist_directory)
-        
-        st.session_state.vectorstore_retreiver = st.session_state.vector_db.as_retriever(search_kwargs={"k": 3})
+        # NOTE: `embeddings` is the HuggingFaceBgeEmbeddings instance imported from
+        # query_translation.py -- the same embedding model used at query/retrieval
+        # time. Keep indexing and retrieval on the same embedding model; swapping
+        # one side to a different model (e.g. OpenAIEmbeddings) silently breaks
+        # vector similarity between what's indexed and what's queried.
+        st.session_state.vector_db = Chroma.from_documents(doc_chunks, embeddings, persist_directory=persist_directory)
+
+        # Reranking needs a wider candidate pool to actually choose among;
+        # plain retrieval keeps the original k=3.
+        retrieval_k = 10 if use_reranking else 3
+        st.session_state.vectorstore_retreiver = st.session_state.vector_db.as_retriever(search_kwargs={"k": retrieval_k})
         st.session_state.keyword_retriever = BM25Retriever.from_documents(doc_chunks)
+        st.session_state.keyword_retriever.k = retrieval_k
+        st.session_state.doc_chunks = doc_chunks
         
 
         # Step 4: Store documents and vector DB in session state for future use
         st.session_state.docs = docs
-        st.session_state.vector_db = vector_embeddings
         st.session_state.embeddings = embeddings
         st.session_state.text_splitter = text_splitter
 
@@ -163,6 +195,9 @@ else:
     similarity_retriever = EnsembleRetriever(retrievers=[st.session_state.vectorstore_retreiver,
                                                    st.session_state.keyword_retriever],
                                        weights=[0.3, 0.7])
+
+    if use_reranking:
+        similarity_retriever = build_reranking_retriever(similarity_retriever, top_n=3)
 
 
     # similarity_retriever = st.session_state.vector_db.as_retriever(search_type="similarity",
@@ -285,7 +320,7 @@ else:
                 timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
 
                 # Invoke the chain with the required parameters, including context
-                result =rag_chain.invoke({"input": question, "chat_history": st.session_state.chat_history})['answer']
+                result =rag_chain.invoke({"input": question, "chat_history": st.session_state.chat_history}, config=trace_config(run_name="Default"))['answer']
                 
 
 
@@ -308,12 +343,12 @@ else:
             # Retrieve
             # question = "What is task decomposition for LLM agents?"
             retrieval_chain = generate_queries | mq_retriever.map() | get_unique_union
-            context = retrieval_chain.invoke({"question": question})
+            context = retrieval_chain.invoke({"question": question}, config=trace_config(run_name="Multi-Query retrieval"))
             context_text = "\n".join([doc.page_content for doc in context])
-            
+
             if context_text:
-                result = rag_chain_multi_query.run({"question": question})
-                result2=rag_chain.invoke({"question":question,"context":context_text})
+                result = rag_chain_multi_query.run({"question": question}, callbacks=trace_config(run_name="Multi-Query generate_queries").get("callbacks"))
+                result2=rag_chain.invoke({"question":question,"context":context_text}, config=trace_config(run_name="Multi-Query answer"))
                 # print(result2)
                 with st.chat_message("AI"):
                     st.markdown(f"""
@@ -331,13 +366,13 @@ else:
         elif prompting_method=="RAG Fusion":
             placeholder.info("generating answer based on Multi-Query RAG Fusion Prompting method..")
             retrieval_chain = generate_queries | mq_retriever.map() | reciprocal_rank_fusion
-            context_text = retrieval_chain.invoke({"question": question})
+            context_text = retrieval_chain.invoke({"question": question}, config=trace_config(run_name="RAG Fusion retrieval"))
 
 
 
             if context_text:
-                result = rag_chain_multi_query.run({"question": question})
-                result2=rag_chain.invoke({"question":question,"context":context_text})
+                result = rag_chain_multi_query.run({"question": question}, callbacks=trace_config(run_name="RAG Fusion generate_queries").get("callbacks"))
+                result2=rag_chain.invoke({"question":question,"context":context_text}, config=trace_config(run_name="RAG Fusion answer"))
                 with st.chat_message("AI"):
                     st.markdown(f"""
                     <div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; margin-bottom: 10px;">
@@ -353,19 +388,19 @@ else:
 
 
         elif prompting_method == "Decomposition":
-            questions = generate_queries_decomposition.invoke({"question":question})
+            questions = generate_queries_decomposition.invoke({"question":question}, config=trace_config(run_name="Decomposition generate_queries"))
 
             q_a_pairs = ""
             for q in questions:
                 rag_chain = (
-                {"context": itemgetter("question") | mq_retriever, 
+                {"context": itemgetter("question") | mq_retriever,
                 "question": itemgetter("question"),
-                "q_a_pairs": itemgetter("q_a_pairs")} 
+                "q_a_pairs": itemgetter("q_a_pairs")}
                 | decomposition_prompt
                 | chatgpt
                 | StrOutputParser())
 
-                answer = rag_chain.invoke({"question":q,"q_a_pairs":q_a_pairs})
+                answer = rag_chain.invoke({"question":q,"q_a_pairs":q_a_pairs}, config=trace_config(run_name="Decomposition sub-answer"))
                 q_a_pair = format_qa_pair(q,answer)
                 q_a_pairs = q_a_pairs + "\n---\n"+  q_a_pair
 
@@ -383,7 +418,7 @@ else:
         elif prompting_method=="Step Back":
 
             # question = "What is task decomposition for LLM agents?"
-            generate_queries_step_back.invoke({"question": question})
+            generate_queries_step_back.invoke({"question": question}, config=trace_config(run_name="Step Back generate_step_back"))
 
             chain = (
                 {
@@ -399,7 +434,7 @@ else:
                 | StrOutputParser()
             )
 
-            answer=chain.invoke({"question": question})
+            answer=chain.invoke({"question": question}, config=trace_config(run_name="Step Back answer"))
 
             with st.chat_message("AI"):
                 st.markdown(f"""
@@ -417,11 +452,11 @@ else:
 
             # Run
             # question = "What is task decomposition for LLM agents?"
-            generate_docs_for_retrieval.invoke({"question":question})
+            generate_docs_for_retrieval.invoke({"question":question}, config=trace_config(run_name="HyDE generate_docs"))
 
 
-            retrieval_chain = generate_docs_for_retrieval | mq_retriever 
-            retireved_docs = retrieval_chain.invoke({"question":question})
+            retrieval_chain = generate_docs_for_retrieval | mq_retriever
+            retireved_docs = retrieval_chain.invoke({"question":question}, config=trace_config(run_name="HyDE retrieval"))
 
             # final_rag_chain = (
             #     prompt
@@ -429,7 +464,7 @@ else:
             #     | StrOutputParser()
             # )
 
-            answer=rag_chain.invoke({"context":retireved_docs,"question":question})
+            answer=rag_chain.invoke({"context":retireved_docs,"question":question}, config=trace_config(run_name="HyDE answer"))
 
             with st.chat_message("AI"):
                 st.markdown(f"""
@@ -441,7 +476,25 @@ else:
                 st.session_state.chat_history.append(AIMessage(answer['text']))
                 # st.sidebar.markdown(f"I retrieved the data from this source: {context_text}")
                 # st.sidebar.markdown(f"questions.. ,{result}")
-                
+
+        elif prompting_method == "Agentic Router (auto: simple / multi-hop / complex)":
+            if "agentic_app" not in st.session_state:
+                placeholder.info("Building the routed retrieval graph (extracts entities/relationships for GraphRAG-style multi-hop retrieval -- one LLM call per chunk, this takes a while)...")
+                st.session_state.agentic_app = build_agentic_app(st.session_state.doc_chunks, llm=chatgpt)
+
+            result = st.session_state.agentic_app.invoke({"question": question}, config=trace_config(run_name="Agentic Router"))
+            answer = result["generation"]
+
+            with st.chat_message("AI"):
+                st.markdown(f"""
+                <div style="border: 1px solid #ddd; border-radius: 10px; padding: 15px; margin-bottom: 10px;">
+                    <p style="color: #777; font-size: 12px;">{timestamp}</p>
+                    <p style="font-size: 11px; color: #999;">Route: {result.get('route', 'complex')}</p>
+                    <p style="font-size: 16px;">{answer}</p>
+                </div>
+                """, unsafe_allow_html=True)
+                st.session_state.chat_history.append(AIMessage(answer))
+
         else:
             # Default (Based on User Query)
             pass

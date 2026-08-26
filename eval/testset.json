@@ -1,0 +1,62 @@
+[
+  {
+    "question": "How many days of continuous employment must an employee complete before they can be approved for remote work?",
+    "ground_truth": "90 days of continuous employment.",
+    "source_doc": "remote_work_policy"
+  },
+  {
+    "question": "What is the one-time home office equipment stipend for employees approved for remote work?",
+    "ground_truth": "$750.",
+    "source_doc": "remote_work_policy"
+  },
+  {
+    "question": "Within how many days of remote-work approval must the equipment stipend be claimed?",
+    "ground_truth": "60 days.",
+    "source_doc": "remote_work_policy"
+  },
+  {
+    "question": "Between what hours must remote employees be reachable on company communication tools?",
+    "ground_truth": "10:00 AM to 3:00 PM in their local time zone, Monday through Friday.",
+    "source_doc": "remote_work_policy"
+  },
+  {
+    "question": "Is an employee on a Performance Improvement Plan eligible for remote work?",
+    "ground_truth": "No, employees on a PIP are not eligible for remote work during the PIP period.",
+    "source_doc": "remote_work_policy"
+  },
+  {
+    "question": "What is the maximum number of days per week an eligible employee may work remotely?",
+    "ground_truth": "Up to 4 days per week.",
+    "source_doc": "remote_work_policy"
+  },
+  {
+    "question": "What is the domestic daily meal per diem for business travel?",
+    "ground_truth": "$65 per day for domestic travel.",
+    "source_doc": "expense_policy"
+  },
+  {
+    "question": "What is the international daily meal per diem for business travel?",
+    "ground_truth": "$90 per day for international travel.",
+    "source_doc": "expense_policy"
+  },
+  {
+    "question": "Above what dollar amount does a non-meal expense require an itemized receipt?",
+    "ground_truth": "Expenses over $25 require an itemized receipt.",
+    "source_doc": "expense_policy"
+  },
+  {
+    "question": "At what expense report amount does finance department approval become required in addition to the manager's approval?",
+    "ground_truth": "Expense reports of $500 or more require finance department approval in addition to the direct manager.",
+    "source_doc": "expense_policy"
+  },
+  {
+    "question": "How many business days does it take for an approved expense report to be reimbursed?",
+    "ground_truth": "10 business days, via direct deposit.",
+    "source_doc": "expense_policy"
+  },
+  {
+    "question": "How long a flight qualifies for premium economy airfare under the expense policy?",
+    "ground_truth": "Flights of 6 hours or longer qualify for premium economy.",
+    "source_doc": "expense_policy"
+  }
+]

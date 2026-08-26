@@ -1,0 +1,29 @@
+Northwind Robotics -- Remote Work Policy (Effective 2026-01-01)
+
+1. Eligibility
+Employees who have completed at least 90 days of continuous employment and
+whose role is designated "remote-eligible" by their manager may work
+remotely up to 4 days per week. Employees on a Performance Improvement Plan
+(PIP) are not eligible for remote work during the PIP period.
+
+2. Core Hours
+All remote employees must be reachable on company communication tools
+between 10:00 AM and 3:00 PM in their local time zone, Monday through
+Friday. Outside of core hours, employees may set their own schedule as long
+as they meet their weekly hour commitment.
+
+3. Equipment Stipend
+Northwind Robotics provides a one-time home office equipment stipend of
+$750 to employees approved for remote work. The stipend can be used for a
+desk, chair, monitor, or other ergonomic equipment, and must be claimed
+through the Expense Portal within 60 days of remote-work approval.
+
+4. Approval Process
+Remote work requests must be submitted through the HR Portal and approved
+by the employee's direct manager and by HR. Approval typically takes 5
+business days. Remote work arrangements are reviewed every 12 months.
+
+5. Security Requirements
+Remote employees must use company-issued laptops with full-disk encryption
+enabled and must connect to internal systems only through the corporate
+VPN. Use of public Wi-Fi without VPN is prohibited.
